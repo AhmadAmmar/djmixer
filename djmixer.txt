@@ -1,0 +1,68 @@
+PYTHON DJ MIXER GUI V2
+======================
+
+What this version adds
+----------------------
+- Embedded waveform editor for the selected track.
+- Detected beat markers over the waveform.
+- Optional emphasis for every fourth detected beat as a visual counting aid.
+- Draggable cue-in and cue-out markers.
+- Optional snap-to-nearest-detected-beat behavior while dragging.
+- A button to snap both cues to nearby detected beats.
+- Editable BPM override for correcting an inaccurate automatic estimate.
+- Offline pitch-preserving time-stretching during processed preview and export.
+- Automatic tempo matching against the previous rendered track or a fixed BPM.
+- A maximum automatic tempo-change safety limit.
+- Optional correction for common half/double BPM tracker ambiguity.
+- Transition-plan text showing interpreted BPM, requested BPM, rendered BPM,
+  stretch rate, overlap duration and warnings.
+- CSV export including the tempo-matching plan.
+
+What “basic beat-grid alignment” means here
+-------------------------------------------
+If you snap cue points to detected beats, enable tempo matching and use a whole
+number of 4/4 bars for the overlap, the incoming track begins at a detected beat
+and overlaps for an integral bar duration at the rendered tempo. This is a useful
+first-pass sync mechanism.
+
+The app does NOT yet infer verified downbeats, 8/16/32-bar musical phrases,
+vocal sections, breakdowns, syncopation patterns, or genre-sensitive transition
+choices. The emphasized every-fourth-beat lines are visual counting guides only.
+Always listen to processed previews before exporting the final set.
+
+Install on Windows with Anaconda
+--------------------------------
+Open Anaconda Prompt in the extracted folder:
+
+    conda create -n djmix python=3.11 -y
+    conda activate djmix
+    conda install -c conda-forge ffmpeg -y
+    python -m pip install -r dj_mixer_requirements_v2.txt
+    python dj_mixer_gui_v2.py
+
+FFmpeg provides MP3 decoding/export and ffplay preview playback.
+
+Suggested workflow
+------------------
+1. Add tracks.
+2. Analyse all tracks.
+3. Select a track and inspect its waveform, BPM, beat markers and approximate key.
+4. Correct obviously wrong BPM estimates with the BPM override field.
+5. Drag cue points. Leave “Snap dragged cues to beats” enabled for beat-aligned edits.
+6. Use bar-based overlap, usually 8, 16 or 32 bars depending on the material.
+7. Select “Match previous track” for a chained DJ-set tempo plan, or use a fixed BPM.
+8. Keep the maximum tempo change conservative, such as 6–8%, unless deliberately
+   testing a more extreme transition.
+9. Use “Preview processed” to hear the current cue trim, tempo stretch and gain match.
+10. Export the mix as MP3 or WAV.
+
+Technical notes
+---------------
+- Audio stretching is offline. It is applied to the trimmed stereo segment only
+  during processed preview or final export.
+- The implementation uses librosa.effects.time_stretch. It preserves pitch while
+  changing duration through a phase-vocoder workflow. It is suitable for a basic
+  offline mixer, although specialist Rubber Band integration would be a stronger
+  option for a later high-quality rendering mode.
+- Cue positions are stored in original source-track seconds, so waveform dragging
+  remains responsive and predictable.
