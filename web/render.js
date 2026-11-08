@@ -14,7 +14,7 @@ export async function renderSet(items, transitions, onProgress = () => {}) {
   const timeline = [];
   let start = 0;
   items.forEach((it, i) => {
-    const offset = i === 0 ? 0 : transitions[i - 1].bInAt;
+    const offset = i === 0 ? (it.startAt || 0) : transitions[i - 1].bInAt;
     // bRate matches B to A's original tempo; if A itself was sped up, B must follow A's played tempo.
     const rate = i === 0 ? 1 : transitions[i - 1].bRate * timeline[i - 1].rate;
     const entry = { ...it, start, offset, rate };
@@ -26,7 +26,8 @@ export async function renderSet(items, transitions, onProgress = () => {}) {
       entry.end = entry.mixAt + tr.bars * playedBar;
       start = entry.mixAt;
     } else {
-      entry.end = start + (it.buffer.duration - offset) / entry.rate;
+      // The last track plays to its end, or, in a hook medley, to the end of its hook (stopAt).
+      entry.end = start + ((it.stopAt || it.buffer.duration) - offset) / entry.rate;
     }
   });
   const total = timeline[timeline.length - 1].end + 1;
@@ -70,6 +71,10 @@ export async function renderSet(items, transitions, onProgress = () => {}) {
       if (first.bHigh !== undefined) hp.frequency.setValueAtTime(first.bHigh, 0);
     }
     if (outT) apply(outT, "a", t.mixAt, 240 / (t.bpm * t.rate));
+    if (!outT && t.stopAt) {                              // a medley ends with a one-second fade, not a sudden stop
+      gain.gain.setValueAtTime(1, Math.max(0, t.end - 1));
+      gain.gain.linearRampToValueAtTime(0, t.end);
+    }
     src.start(i === 0 ? 0 : t.start, t.offset);
     src.stop(t.end + (outT && outT.preset === "echo-out" ? 0 : 0.05));
   });

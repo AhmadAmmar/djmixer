@@ -33,3 +33,14 @@ export async function usage() {
   const e = await navigator.storage.estimate();
   return { usedMB: e.usage / 1e6, quotaMB: e.quota / 1e6 };
 }
+
+export async function patchTrack(id, fields) {
+  const db = await open();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite"), s = tx.objectStore(STORE);
+    const req = s.get(id);
+    req.onsuccess = () => { if (req.result) s.put({ ...req.result, ...fields }); };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}

@@ -2,7 +2,7 @@ import { NOTES, SPEED_OF_SOUND, SWARAS, downmix, estimateKey, estimateTempo, fre
 import { LESSONS as BASE_LESSONS } from "./lessons.js";
 import { MORE_LESSONS } from "./lessons_more.js";
 const LESSONS = [...BASE_LESSONS.slice(0, -1), ...MORE_LESSONS, BASE_LESSONS[BASE_LESSONS.length - 1]];
-import { APP_VERSION, addFiles, init as initStudio, library, renderLibrary, restoreLibrary, suggestNext } from "./studio.js";
+import { APP_VERSION, addFiles, init as initStudio, library, markHook, renderLibrary, restoreLibrary, suggestNext } from "./studio.js";
 import { PRESETS, planTransition } from "./mix.js";
 import { firstRun, initHelp, tour } from "./help.js";
 import { saveFile } from "./platform.js";
@@ -39,7 +39,7 @@ class Deck {
   constructor(el, name) {
     Object.assign(this, { el, name, buffer: null, file: "", source: null, playing: false, offset: 0, startedAt: 0, rate: 1, bpm: 0, firstBeat: 0, key: null, cues: [], zoom: 1, peaks: null });
     el.innerHTML = `<h3>${name}: no track</h3><canvas height="160"></canvas><div class="stats">&nbsp;</div>
-      <div class="row"><button data-a="play">Play</button><button data-a="load">Load</button><button data-a="cue">Cue</button><input type="file" accept="audio/*" hidden></div>
+      <div class="row"><button data-a="play">Play</button><button data-a="load">Load</button><button data-a="cue">Cue</button><button data-a="hook" data-help="markHook">Mark hook</button><input type="file" accept="audio/*,.zip" hidden></div>
       <div class="knobs">${KNOBS.map((k) => `
         <div class="knob"><span class="kname" data-help="${k.help}">${k.label}</span> <span class="kval" data-v="${k.id}"></span>
           <button class="reset" data-r="${k.id}" title="Back to the default, ${k.fmt(k.def)} (or double-click the slider)">&#8634;</button>
@@ -55,6 +55,7 @@ class Deck {
     el.querySelector("[data-a=play]").onclick = () => this.toggle();
     el.querySelector("[data-a=load]").onclick = () => input.click();
     el.querySelector("[data-a=cue]").onclick = () => this.addCue();
+    el.querySelector("[data-a=hook]").onclick = () => { if (this.itemId) markHook(this.itemId, this.position()); };
     input.onchange = () => input.files[0] && this.loadFile(input.files[0]);
     el.querySelectorAll("[data-k]").forEach((s) => {
       s.oninput = () => this.set(s.dataset.k, +s.value);
@@ -80,7 +81,7 @@ class Deck {
       const id = e.dataTransfer.getData("text/mal-track");
       const item = id && library.find((t) => t.id === id);
       if (item?.buffer) this.setItem(item);
-      else if (e.dataTransfer.files[0]) this.loadFile(e.dataTransfer.files[0]);
+      else if (e.dataTransfer.files[0]) this.loadFile(e.dataTransfer.files[0]);   // a zip goes to the Library; its first track to this deck
     };
   }
 
@@ -317,6 +318,11 @@ class Deck {
         g.fillRect(x(t), 0, 1, c.height);
       }
     }
+    const item = library.find((t) => t.id === this.itemId);  // hooks: shaded bands, the one in use stronger
+    (item?.hooks || []).forEach((h) => {
+      g.fillStyle = h.start === (item.hookStart ?? null) || (item.hookStart === undefined && h.rank === 1) ? "rgba(255,209,102,0.35)" : "rgba(255,209,102,0.15)";
+      g.fillRect(x(h.start), 0, x(h.start + h.seconds) - x(h.start), c.height);
+    });
     g.fillStyle = "#ffd166";
     this.cues.forEach((t) => g.fillRect(x(t), 0, 2, c.height));
     g.fillStyle = cssVar("--ink");

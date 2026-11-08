@@ -60,8 +60,8 @@
     <div id="views">
       <div data-panel="library" id="libraryDrop">
         <div class="row">
-          <label class="filebtn">Add audio files <input type="file" id="libFiles" accept="audio/*" multiple hidden></label>
-          <span class="muted small">or drop files here, or on a deck. They stay on this device and are remembered for next time.</span>
+          <label class="filebtn">Add audio files <input type="file" id="libFiles" accept="audio/*,.zip" multiple hidden></label>
+          <span class="muted small">or drop files or a .zip of them here, or on a deck. They stay on this device and are remembered for next time.</span>
         </div>
         <div class="row"><span id="storeInfo" class="muted small"></span>
         </div>
@@ -72,6 +72,7 @@
       <div data-panel="set" hidden>
         <div class="row">
           <label data-help="preset">Transition style <select id="presetChoice"></select></label>
+          <button id="planAll" data-help="planAll">Plan from all tracks</button>
           <button id="setFromDecks" data-help="setFromDecks">Use the deck tracks</button>
           <button id="autoOrder" data-help="autoOrder">Auto order</button>
           <button id="renderMp3" data-help="render">Render MP3</button>
@@ -80,6 +81,7 @@
           <input type="file" id="setFile" accept=".json" hidden>
         </div>
         <p id="setInfo" class="muted"></p>
+        <div id="sequence"></div>
         <ol id="setOrder"></ol>
       </div>
       <div data-panel="lab" hidden>

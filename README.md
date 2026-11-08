@@ -3,13 +3,15 @@
 Learn music and DJ mixing by measuring real tracks. One web app, with no build step, that runs in any desktop browser
 and, wrapped by Capacitor, as an Android app from the same code.
 
-- **Teaches**: 17 lessons, a Sound lab (note, octave, fifth, chords, timbre, beats and bars, half time), an explanation
+- **Teaches**: 18 lessons, a Sound lab (note, octave, fifth, chords, timbre, beats and bars, half time), an explanation
   for every control (hover, or press and hold on touch), and a first-run tour.
 - **Measures** your own files: tempo, key and Camelot code, loudness, peaks, brightness, intro and outro, energy over
   time, notes used; and how well every pair would mix.
 - **Remembers** every track you add (on this device), and keeps the decks, Library and Set builder in step; a
   mix advisor between the decks explains how to mix A into B, plays the transition, and suggests what comes next,
   with a view of both decks' beats together.
+- **Hooks and folders**: drop a .zip of songs and it plans a route (where to start, why each next track); it finds
+  each song's hooks and makes South Asian hook-to-hook medleys, shown as a sequence.
 - **Mixes**: plans a set with transition styles from different scenes (house bass swap, pop crossfade, Bollywood cut
   on the sam, acid filter sweep, echo out), explains each decision, renders it as MP3 or WAV with loudness matching,
   and saves a set file with file fingerprints so the same mix can be made again.

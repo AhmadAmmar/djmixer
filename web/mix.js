@@ -74,6 +74,11 @@ export const PRESETS = {
       { at: bars, aGain: 0, bGain: 1, aCut: 200, bHigh: 20 },
     ],
   },
+  "hook-to-hook": {
+    name: "South Asian hook to hook: play a hook, cut into the next hook", bars: 1, stretchLimit: 0.06,
+    rule: "A favourite move at Pakistani and Indian weddings, mehndis and Bollywood nights: instead of playing whole songs, play each song's hook (the mukhda or chorus everyone sings along to), and on the downbeat after it ends cut straight into the next song's hook. The crowd goes from one sing-along to the next with no verses in between. Order matters: keep tempos close, rise in energy, and land each cut on beat one (the sam).",
+    automation: (bars) => [{ at: 0, aGain: 1, bGain: 0 }, { at: bars * 0.25, aGain: 0, bGain: 1 }],
+  },
   "echo-out": {
     name: "Any style: echo out", bars: 2, stretchLimit: 0,
     rule: "When tempos or keys are too far apart to blend, do not blend: let the old track end in an echo, and start the new one cleanly on its own downbeat.",
@@ -112,6 +117,31 @@ export function planTransition(a, b, presetId = "auto") {
     aOutAt: +aOut.toFixed(3), bInAt: +b.firstBeat.toFixed(3), bars: mixBars, seconds: +(mixBars * barA).toFixed(3),
     automation: p.automation(mixBars),
   };
+}
+
+// ---------------------------------------------------------------- hook medley
+// The hook a track will play: the one chosen by hand, otherwise the best-ranked one found.
+export const chosenHook = (t) => (t.hooks || []).find((h) => h.start === t.hookStart) || (t.hooks || []).slice().sort((p, q) => p.rank - q.rank)[0] || null;
+
+// Plan a medley: each track plays from the start of its hook to its end; then the next track's hook starts on the
+// next downbeat. Speeds are matched when the change is small enough not to bend the voices (6%).
+export function planHookMedley(tracks) {
+  return tracks.slice(1).map((b, i) => {
+    const a = tracks[i], ha = chosenHook(a), hb = chosenHook(b);
+    const t = tempoMatch(a.bpm, b.bpm);
+    const rate = t.change <= PRESETS["hook-to-hook"].stretchLimit ? t.rate : 1;
+    const key = shiftedKey(b.camelot, semitones(rate));
+    const p = PRESETS["hook-to-hook"];
+    return {
+      preset: "hook-to-hook", presetName: p.name, rule: p.rule,
+      why: `${ha ? `hook of ${a.file.slice(0, 24)} ends` : "no hook found, so the track's last phrase is used"}; cut on the next downbeat into ${hb ? "the next hook" : "the next track's first beat"}`,
+      bRate: +rate.toFixed(4), multiple: t.multiple, stretchPct: +(100 * (rate - 1)).toFixed(2), pitchShift: +semitones(rate).toFixed(2),
+      bKeyAfter: key, keyFit: keyFit(key, a.camelot),
+      aOutAt: +(ha ? ha.start + ha.seconds : a.duration - 8 * 240 / a.bpm).toFixed(3), bInAt: +(hb ? hb.start : b.firstBeat).toFixed(3),
+      bars: p.bars, seconds: +(p.bars * 240 / a.bpm).toFixed(3), automation: p.automation(p.bars),
+      aHook: ha, bHook: hb,
+    };
+  });
 }
 
 // ---------------------------------------------------------------- the order of a set

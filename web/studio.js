@@ -1,10 +1,11 @@
 // Library, set builder and sound lab. Shares the decks and audio of app.js through init().
 import { NOTES, downmix, noteToFreq } from "./dsp.js";
-import { PRESETS, keyFit, orderSet, planTransition, setFile, shiftedKey, semitones, tempoMatch } from "./mix.js";
+import { PRESETS, chosenHook, keyFit, orderSet, planHookMedley, planTransition, setFile, shiftedKey, semitones, tempoMatch } from "./mix.js";
 import { mp3Blob, renderSet as renderMix, sha256, wavBlob } from "./render.js";
-import { allTracks, forgetTrack, saveTrack, usage } from "./store.js";
+import { allTracks, forgetTrack, patchTrack, saveTrack, usage } from "./store.js";
+import { audioFromZip, isZip } from "./unzip.js";
 
-export const APP_VERSION = "0.5.1";
+export const APP_VERSION = "0.6.0";
 const $ = (id) => document.getElementById(id);
 let env;                                   // { ctx, decks, download, master }
 export const library = [];                 // { id, file, buffer, sha256, duration, ...analysis }
@@ -13,18 +14,28 @@ const waiting = new Map();
 worker.onmessage = (e) => { waiting.get(e.data.id)(e.data.result); waiting.delete(e.data.id); };
 const analyse = (x, sr) => new Promise((res) => { const id = Math.random(); waiting.set(id, res); worker.postMessage({ id, x, sr }, [x.buffer]); });
 
-const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+export const fmtTime = (s) => { const r = Math.round(s); return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, "0")}`; };
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 // ---------------------------------------------------------------- library
 // Every track the app knows lives here, whether it came from the Library button, a drop on a deck, or a previous visit.
 // The decks, the Library and the Set builder all point at these same records, so they cannot disagree.
-const MEASURES = ["bpm", "firstBeat", "key", "camelot", "keyScore", "rmsDb", "peakDb", "crestDb", "brightnessHz", "introBars", "outroBars", "chroma", "sections", "energy"];
+const MEASURES = ["bpm", "firstBeat", "key", "camelot", "keyScore", "rmsDb", "peakDb", "crestDb", "brightnessHz", "introBars", "outroBars", "chroma", "sections", "energy", "hooks", "hookStart"];
 
 export async function addFiles(files) {
   const audio = env.ctx();
   const added = [];
-  for (const file of files) {
+  const expanded = [];
+  for (const f of files) {
+    if (!isZip(f)) { expanded.push(f); continue; }
+    try {
+      const inside = await audioFromZip(f);
+      if ($("storeInfo")) $("storeInfo").textContent = `${f.name}: ${inside.length} audio file${inside.length === 1 ? "" : "s"} found inside.`;
+      expanded.push(...inside);
+    } catch (err) { if ($("storeInfo")) $("storeInfo").textContent = `${f.name} could not be opened (${err.message}).`; }
+  }
+  if (files.some(isZip)) zipJustOpened = true;
+  for (const file of expanded) {
     const bytes = await file.arrayBuffer();
     const sha = await sha256(bytes);
     const known = library.find((t) => t.sha256 === sha);          // the same recording, already in the library
@@ -50,6 +61,7 @@ export async function addFiles(files) {
     env.onChange?.();                                 // let the decks' advisor see the new track
   }
   storeInfo();
+  if (zipJustOpened) { zipJustOpened = false; planAll(); }   // a whole folder arrived: suggest where to start and how to go on
   return added;
 }
 
@@ -64,6 +76,15 @@ export async function restoreLibrary() {
     library.push(item); renderLibrary();
     try {
       item.buffer = await audio.decodeAudioData(r.bytes.slice(0));
+      if (!r.hooks) {                                  // remembered by an older version: measure again to add hooks
+        item.status = "finding hooks";
+        renderLibrary();
+        const chans = Array.from({ length: item.buffer.numberOfChannels }, (_, i) => item.buffer.getChannelData(i));
+        const f = Math.round(item.buffer.sampleRate / 11025);
+        Object.assign(item, await analyse(downmix(chans, f), item.buffer.sampleRate / f));
+        const fields = {}; MEASURES.forEach((k) => (fields[k] = item[k]));
+        patchTrack(item.id, fields).catch(() => {});
+      }
       item.status = "ready";
     } catch (err) { item.status = `could not be decoded again (${err.message})`; }
     renderLibrary();
@@ -93,15 +114,10 @@ async function forget(t) {
 export function suggestNext(current, exclude = []) {
   return library.filter((t) => t.status === "ready" && t !== current && !exclude.includes(t)).map((t) => {
     const m = tempoMatch(current.bpm, t.bpm);
-    const k = keyFit(shiftedKey(t.camelot, semitones(m.rate)), current.camelot);
+    const k = keyFit(shiftedKey(t.camelot, semitones(m.change <= 0.08 ? m.rate : 1)), current.camelot);
     const lift = t.rmsDb >= current.rmsDb;
     const score = (1 - Math.min(m.change / 0.1, 1)) + k.score + (lift ? 0.3 : 0);
-    const why = [
-      m.change <= 0.04 ? `tempo ${t.bpm.toFixed(0)} BPM is within ${(100 * m.change).toFixed(1)}%${m.multiple !== 1 ? (m.multiple === 2 ? " at double time" : " at half time") : ""}, so the beats can lock`
-        : m.change <= 0.08 ? `tempo needs a ${(100 * m.change).toFixed(1)}% change: audible on vocals, fine on drums` : `tempo is ${(100 * m.change).toFixed(0)}% away, so it needs a cut or echo-out`,
-      `key ${t.camelot}: ${k.why}`,
-      lift ? "it is as loud or louder, so energy keeps rising" : "it is quieter, a chance to let the energy breathe",
-    ];
+    const why = whyNext(current, t);
     return { track: t, score, why };
   }).sort((p, q) => q.score - p.score);
 }
@@ -149,6 +165,23 @@ export function renderLibrary() {
         <span data-help="bpm">${t.bpm.toFixed(1)} BPM</span><span data-help="key">${esc(t.key)} (${t.camelot})</span>
         <span data-help="length">${fmtTime(t.duration)}</span><span data-help="loudness">${t.rmsDb} dB RMS, peak ${t.peakDb} dB</span>
         <span data-help="brightness">brightness ${t.brightnessHz} Hz</span><span data-help="intro">intro ${t.introBars} bars, outro ${t.outroBars} bars</span></div>`;
+      if (t.hooks?.length) {
+        const hk = document.createElement("div"); hk.className = "row hooks";
+        hk.innerHTML = `<span class="muted small" data-help="hooks">hooks</span>`;
+        t.hooks.slice().sort((p, q) => p.start - q.start).forEach((h) => {
+          const b = document.createElement("button");
+          const on = chosenHook(t)?.start === h.start;
+          b.className = on ? "hook on" : "hook";
+          b.textContent = `${fmtTime(h.start)}-${fmtTime(h.start + h.seconds)}${h.source === "marked" ? " (yours)" : h.rank === 1 ? " (best)" : ""}`;
+          b.title = `Play this hook on deck A. Similarity to its repeat ${h.similarity ?? "-"}, loudness ${h.loudness ?? "-"}. Shift-click to make it the hook used in hook medleys.`;
+          b.onclick = (e) => {
+            if (e.shiftKey) { t.hookStart = h.start; patchTrack(t.id, { hookStart: h.start }).catch(() => {}); renderLibrary(); renderSet(); return; }
+            env.decks[0].setItem(t); env.decks[0].seek(h.start); env.decks[0].start();
+          };
+          hk.append(b);
+        });
+        li.append(hk);
+      }
       const row = document.createElement("div"); row.className = "row";
       const lab = (txt, help) => { const s = document.createElement("span"); s.className = "muted small"; s.textContent = txt; s.dataset.help = help; return s; };
       row.append(lab("energy over time", "energy"), spark(t.energy), lab("notes used", "chroma"), chromaBars(t.chroma));
@@ -199,14 +232,18 @@ export function renderSet() {
   const chosen = library.filter((t) => t.inSet && t.status === "ready");
   order = order.filter((t) => chosen.includes(t)).concat(chosen.filter((t) => !order.includes(t)));
   const preset = $("presetChoice")?.value ?? "auto";
-  plans = order.slice(1).map((b, i) => planTransition(order[i], b, preset));
+  const medley = preset === "hook-to-hook";
+  plans = medley ? planHookMedley(order) : order.slice(1).map((b, i) => planTransition(order[i], b, preset));
   const ol = $("setOrder");
   if (!ol) return;
   ol.innerHTML = "";
   order.forEach((t, i) => {
     const li = document.createElement("li");
     li.value = i + 1;                                  // number tracks 1, 2, 3; the transition notes between them are not counted
-    li.innerHTML = `<b>${esc(t.file)}</b> <span class="muted">${t.bpm.toFixed(1)} BPM, ${t.camelot}, ${t.rmsDb} dB</span>`;
+    const h = chosenHook(t);
+    const span = medley && h ? ` <span class="badge">hook ${fmtTime(h.start)}-${fmtTime(h.start + h.seconds)}</span>` : "";
+    const reason = i === 0 ? startReason(t) : whyNext(order[i - 1], t).join("; ");
+    li.innerHTML = `<b>${esc(t.file)}</b>${span} <span class="muted">${t.bpm.toFixed(1)} BPM, ${t.camelot}, ${t.rmsDb} dB</span><div class="small muted">${i === 0 ? "Start here: " : "Why next: "}${esc(reason)}.</div>`;
     const up = document.createElement("button"); up.textContent = "Up"; up.disabled = i === 0;
     up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; renderSet(); };
     li.append(" ", up);
@@ -215,22 +252,70 @@ export function renderSet() {
       const p = plans[i], d = document.createElement("li");
       d.className = "transition";
       d.innerHTML = `<div><b>${esc(p.presetName)}</b> <span class="muted">(${esc(p.why)})</span></div>
-        <div>Leave at ${fmtTime(p.aOutAt)} (an 8-bar phrase boundary); bring the next track in from its first beat, ${p.bInAt.toFixed(2)} s;
-        blend over ${p.bars} bars (${p.seconds.toFixed(1)} s).</div>
+        <div>${medley ? `Play the hook to its end at ${fmtTime(p.aOutAt)}, then cut on the next downbeat into the next track's hook at ${fmtTime(p.bInAt)}` : `Leave at ${fmtTime(p.aOutAt)} (an 8-bar phrase boundary); bring the next track in from its first beat, ${p.bInAt.toFixed(2)} s`};
+        ${medley ? "a quarter-bar crossfade, so the cut does not click" : `blend over ${p.bars} bars (${p.seconds.toFixed(1)} s)`}.</div>
         <div>Speed of the next track: ${p.bRate.toFixed(3)}×${p.multiple !== 1 ? ` (meeting at ${p.multiple === 2 ? "double" : "half"} time)` : ""},
         ${p.stretchPct >= 0 ? "+" : ""}${p.stretchPct}%, which moves its pitch ${p.pitchShift} semitones; its key becomes ${p.bKeyAfter}: ${esc(p.keyFit.why)}.</div>
         <details><summary>The rule behind this preset</summary><p>${esc(p.rule)}</p></details>`;
       ol.append(d);
     }
   });
-  $("setInfo").textContent = order.length < 2 ? "Tick at least two tracks in the Library." : `${order.length} tracks, ${plans.length} transitions.`;
+  $("setInfo").textContent = order.length < 2 ? "Tick at least two tracks in the Library, or press Plan from all tracks." : `${order.length} tracks, ${plans.length} transitions.`;
+  renderSequence(medley);
 }
+
+// The hook sequence: one bar per track, its length the time it plays, so the whole medley can be read at a glance.
+function renderSequence(medley) {
+  const box = $("sequence");
+  if (!box) return;
+  if (!medley || order.length < 2) { box.innerHTML = ""; return; }
+  let total = 0;
+  const parts = order.map((t, i) => {
+    const from = i === 0 ? (chosenHook(t)?.start ?? 0) : plans[i - 1].bInAt;
+    const to = i < plans.length ? plans[i].aOutAt : (chosenHook(t) ? chosenHook(t).start + chosenHook(t).seconds : t.duration);
+    const rate = i === 0 ? 1 : plans.slice(0, i).reduce((r, p) => r * p.bRate, 1);
+    const secs = Math.max(0, (to - from) / rate);
+    const part = { t, from, to, secs, start: total };
+    total += secs;
+    return part;
+  });
+  box.innerHTML = `<h4 data-help="sequence">Hook sequence: ${fmtTime(total)} in all</h4><div class="seq">${parts.map((p, i) =>
+    `<div class="seqpart" style="flex:${p.secs.toFixed(1)}" title="${esc(p.t.file)}: ${fmtTime(p.from)} to ${fmtTime(p.to)}"><b>${i + 1}</b> ${esc(p.t.file.replace(/\.[^.]+$/, "").slice(0, 28))}<br><span class="small">${fmtTime(p.start)} | its ${fmtTime(p.from)}-${fmtTime(p.to)}</span></div>`).join("")}</div>
+    <p class="small muted">Each block is one hook, as long as it plays. Change the order with Up, or pick another hook in the Library (shift-click a hook).</p>`;
+}
+
+// Why a track makes a good start, and why one track follows another, in words.
+function startReason(t) {
+  const calm = library.filter((x) => x.status === "ready").every((x) => x.rmsDb >= t.rmsDb);
+  return `${calm ? "the calmest track here" : "chosen first"} (${t.rmsDb} dB, ${t.bpm.toFixed(0)} BPM), so the set has room to build`;
+}
+export function whyNext(a, t) {
+  const m = tempoMatch(a.bpm, t.bpm);
+  const rate = m.change <= 0.08 ? m.rate : 1;          // a pair too far apart is cut, not sped up, so its key stays
+  const k = keyFit(shiftedKey(t.camelot, semitones(rate)), a.camelot);
+  return [
+    m.change <= 0.04 ? `tempo ${t.bpm.toFixed(0)} BPM is within ${(100 * m.change).toFixed(1)}%${m.multiple !== 1 ? (m.multiple === 2 ? " at double time" : " at half time") : ""}, so the beats can lock`
+      : m.change <= 0.08 ? `tempo needs a ${(100 * m.change).toFixed(1)}% change: audible on vocals, fine on drums` : `tempo is ${(100 * m.change).toFixed(0)}% away, so it needs a cut or echo-out`,
+    `key ${t.camelot}: ${k.why}`,
+    t.rmsDb >= a.rmsDb ? "as loud or louder, so energy keeps rising" : "quieter, a chance to let the energy breathe",
+  ];
+}
+
+// Plan from everything in the library: tick every ready track, find a good order, and show the route.
+export function planAll() {
+  library.forEach((t) => (t.inSet = t.status === "ready"));
+  order = orderSet(library.filter((t) => t.inSet));
+  renderLibrary(); renderSet();
+  document.querySelector("[data-view=set]")?.click();
+}
+let zipJustOpened = false;
 
 async function render(kind) {
   if (order.length < 2) return;
   const status = $("setInfo");
   status.textContent = "Rendering the mix (faster than real time)...";
-  const { buffer, timeline } = await renderMix(order.map((t) => ({ buffer: t.buffer, bpm: t.bpm, firstBeat: t.firstBeat, file: t.file, rmsDb: t.rmsDb })), plans);
+  const { buffer, timeline } = await renderMix(order.map((t, i) => ({ buffer: t.buffer, bpm: t.bpm, firstBeat: t.firstBeat, file: t.file, rmsDb: t.rmsDb, startAt: i === 0 && $("presetChoice").value === "hook-to-hook" ? chosenHook(t)?.start || 0 : 0,
+      stopAt: i === order.length - 1 && $("presetChoice").value === "hook-to-hook" && chosenHook(t) ? chosenHook(t).start + chosenHook(t).seconds : 0 })), plans);
   const name = `mix_${new Date().toISOString().slice(0, 10)}`;
   if (kind === "wav") env.download(wavBlob(buffer), name + ".wav");
   else env.download(await mp3Blob(buffer, 192, (f) => (status.textContent = `Encoding MP3: ${Math.round(100 * f)}%`)), name + ".mp3");
@@ -306,6 +391,7 @@ export function init(e) {
   Object.entries(PRESETS).forEach(([id, p]) => sel.add(new Option(p.name, id)));
   sel.onchange = renderSet;
   $("autoOrder").onclick = () => { order = orderSet(order); renderSet(); };
+  $("planAll").onclick = planAll;
   $("setFromDecks").onclick = () => {                 // the two deck tracks become the set, A first
     const items = env.decks.map((d) => library.find((t) => t.id === d.itemId)).filter(Boolean);
     library.forEach((t) => (t.inSet = items.includes(t)));
@@ -326,4 +412,17 @@ export function init(e) {
   $("labBpm").oninput = () => ($("labBpmOut").textContent = $("labBpm").value);
   $("labStop").onclick = stopLab;
   renderLibrary(); renderSet();
+}
+
+// Mark a hook by hand at time `at` (seconds) in a library track: snapped to the bar, 8 bars long, used first.
+export function markHook(id, at) {
+  const t = library.find((x) => x.id === id);
+  if (!t?.bpm) return null;
+  const bar = 240 / t.bpm, start = +(t.firstBeat + Math.round((at - t.firstBeat) / bar) * bar).toFixed(2);
+  t.hooks = (t.hooks || []).filter((h) => Math.abs(h.start - start) > bar);
+  t.hooks.push({ rank: 0, source: "marked", start, bars: 8, seconds: +(8 * bar).toFixed(2) });
+  t.hookStart = start;
+  patchTrack(t.id, { hooks: t.hooks, hookStart: start }).catch(() => {});
+  renderLibrary(); renderSet();
+  return start;
 }

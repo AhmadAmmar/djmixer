@@ -333,5 +333,72 @@ export function analyseTrack(x, sr) {
     introBars: firstFull && bar ? Math.round((firstFull.start - tempo.firstBeat) / bar) : 0,
     outroBars: lastFull && bar ? Math.max(0, Math.round((x.length / sr - (lastFull.start + 8 * bar)) / bar)) : 0,
     chroma: Array.from(c, (v) => v / (cmax || 1)), sections: secs, energy: Array.from(energy, (v) => +v.toFixed(4)),
+    hooks: findHooks(x, sr, tempo.bpm, tempo.firstBeat),
   };
+}
+
+// ---------------------------------------------------------------- hooks
+// A hook is the catchy phrase a song keeps returning to: in film and pop songs usually the chorus (the mukhda in
+// Hindi and Urdu songs). Two clues find it. It REPEATS: the same chords and melody come back, so its notes (chroma)
+// bar by bar match another stretch of the song. And it is LOUD: choruses are fuller than verses.
+// Method: average the chroma of every bar, compare every 8-bar stretch with every other one that does not overlap
+// (mean cosine similarity of the bars), and score each stretch by how well it is repeated times how loud it is.
+export function chromaFrames(x, sr, size = 4096, hop = 2048) {
+  const w = hann(size), out = [];
+  for (let s = 0; s + size <= x.length; s += hop) {
+    const b = new Float32Array(size);
+    for (let i = 0; i < size; i++) b[i] = x[s + i] * w[i];
+    const m = fftMag(b), c = new Float32Array(12);
+    for (let k = 1; k < m.length; k++) {
+      const f = (k * sr) / size;
+      if (f < 80 || f > 2000) continue;
+      const n = Math.round(69 + 12 * Math.log2(f / 440));
+      c[((n % 12) + 12) % 12] += m[k] * m[k];
+    }
+    out.push(c);
+  }
+  return { frames: out, rate: sr / hop };
+}
+
+export function findHooks(x, sr, bpm, firstBeat, bars = 8, keep = 3) {
+  if (!bpm) return [];
+  const { frames, rate } = chromaFrames(x, sr);
+  const barSec = 240 / bpm, nBars = Math.floor((x.length / sr - firstBeat) / barSec);
+  const barChroma = [], barEnergy = [];
+  for (let b = 0; b < nBars; b++) {
+    const f0 = Math.floor((firstBeat + b * barSec) * rate), f1 = Math.floor((firstBeat + (b + 1) * barSec) * rate);
+    const c = new Float32Array(12);
+    let e = 0;
+    for (let f = f0; f < f1 && f < frames.length; f++) for (let i = 0; i < 12; i++) { c[i] += frames[f][i]; e += frames[f][i]; }
+    const norm = Math.hypot(...c) || 1;
+    barChroma.push(c.map((v) => v / norm)); barEnergy.push(e);
+  }
+  const eMax = Math.max(...barEnergy, 1e-9);
+  const cos = (p, q) => { let s = 0; for (let i = 0; i < 12; i++) s += barChroma[p][i] * barChroma[q][i]; return s; };
+  const segSim = (s, t) => { let v = 0; for (let k = 0; k < bars; k++) v += cos(s + k, t + k); return v / bars; };
+  const cands = [];
+  for (let s = 0; s + bars <= nBars; s++) {
+    let best = 0, repeats = [];
+    for (let t = 0; t + bars <= nBars; t++) {
+      if (Math.abs(t - s) < bars) continue;
+      const v = segSim(s, t);
+      if (v > best) best = v;
+      if (v > 0.9) repeats.push(t);
+    }
+    let e = 0;
+    for (let k = 0; k < bars; k++) e += barEnergy[s + k];
+    const loud = e / bars / eMax;
+    cands.push({ bar: s, similarity: best, loud, score: best * best * (0.4 + loud) * (1 + 0.15 * Math.min(repeats.length, 4)), repeats });
+  }
+  cands.sort((p, q) => q.score - p.score);
+  const chosen = [];
+  for (const c of cands) {
+    if (chosen.every((h) => Math.abs(h.bar - c.bar) >= bars)) chosen.push(c);
+    if (chosen.length === keep) break;
+  }
+  return chosen.map((c, i) => ({
+    rank: i + 1, source: "found",
+    start: +(firstBeat + c.bar * barSec).toFixed(2), bars, seconds: +(bars * barSec).toFixed(2),
+    similarity: +c.similarity.toFixed(2), loudness: +c.loud.toFixed(2), repeatsAt: c.repeats.slice(0, 6).map((t) => +(firstBeat + t * barSec).toFixed(1)),
+  })).sort((p, q) => p.start - q.start);
 }
