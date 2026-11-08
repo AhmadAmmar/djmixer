@@ -1,6 +1,6 @@
 {
   "name": "mix-and-learn",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Learn music and DJ mixing by measuring real tracks: one web app for desktop browsers and Android",
   "type": "module",

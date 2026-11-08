@@ -12,6 +12,8 @@ and, wrapped by Capacitor, as an Android app from the same code.
   with a view of both decks' beats together.
 - **Hooks and folders**: drop a .zip of songs and it plans a route (where to start, why each next track); it finds
   each song's hooks and makes South Asian hook-to-hook medleys, shown as a sequence.
+- **Playlists and videos**: each zip is a playlist (combine any of them); export a 60, 90 or 180 s MP4 for
+  Instagram (Story 9:16, feed 4:5 or square) showing the waveform, what is playing, what comes next and the progress.
 - **Mixes**: plans a set with transition styles from different scenes (house bass swap, pop crossfade, Bollywood cut
   on the sam, acid filter sweep, echo out), explains each decision, renders it as MP3 or WAV with loudness matching,
   and saves a set file with file fingerprints so the same mix can be made again.
@@ -21,6 +23,8 @@ and, wrapped by Capacitor, as an Android app from the same code.
 ![The Library with four measured tracks](docs/guide/fig/library.png)
 
 ![The Set builder, each transition explained](docs/guide/fig/set.png)
+
+![Three frames of a 60-second Instagram Story made by the app](docs/guide/fig/clip_frames.png)
 
 | Sound lab | Explanations on hover | Phone width |
 |---|---|---|

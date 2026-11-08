@@ -4,8 +4,9 @@ import { PRESETS, chosenHook, keyFit, orderSet, planHookMedley, planTransition, 
 import { mp3Blob, renderSet as renderMix, sha256, wavBlob } from "./render.js";
 import { allTracks, forgetTrack, patchTrack, saveTrack, usage } from "./store.js";
 import { audioFromZip, isZip } from "./unzip.js";
+import { FORMATS, exportClip } from "./video.js";
 
-export const APP_VERSION = "0.6.0";
+export const APP_VERSION = "0.7.0";
 const $ = (id) => document.getElementById(id);
 let env;                                   // { ctx, decks, download, master }
 export const library = [];                 // { id, file, buffer, sha256, duration, ...analysis }
@@ -20,7 +21,7 @@ const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 // ---------------------------------------------------------------- library
 // Every track the app knows lives here, whether it came from the Library button, a drop on a deck, or a previous visit.
 // The decks, the Library and the Set builder all point at these same records, so they cannot disagree.
-const MEASURES = ["bpm", "firstBeat", "key", "camelot", "keyScore", "rmsDb", "peakDb", "crestDb", "brightnessHz", "introBars", "outroBars", "chroma", "sections", "energy", "hooks", "hookStart"];
+const MEASURES = ["bpm", "firstBeat", "key", "camelot", "keyScore", "rmsDb", "peakDb", "crestDb", "brightnessHz", "introBars", "outroBars", "chroma", "sections", "energy", "hooks", "hookStart", "playlists"];
 
 export async function addFiles(files) {
   const audio = env.ctx();
@@ -30,6 +31,8 @@ export async function addFiles(files) {
     if (!isZip(f)) { expanded.push(f); continue; }
     try {
       const inside = await audioFromZip(f);
+      const name = f.name.replace(/\.zip$/i, "");
+      inside.forEach((x) => (x.playlist = name));
       if ($("storeInfo")) $("storeInfo").textContent = `${f.name}: ${inside.length} audio file${inside.length === 1 ? "" : "s"} found inside.`;
       expanded.push(...inside);
     } catch (err) { if ($("storeInfo")) $("storeInfo").textContent = `${f.name} could not be opened (${err.message}).`; }
@@ -38,9 +41,13 @@ export async function addFiles(files) {
   for (const file of expanded) {
     const bytes = await file.arrayBuffer();
     const sha = await sha256(bytes);
+    const playlist = file.playlist || "Single files";
     const known = library.find((t) => t.sha256 === sha);          // the same recording, already in the library
-    if (known) { added.push(known); continue; }
-    const item = { id: crypto.randomUUID(), file: file.name, sha256: sha, status: "reading" };
+    if (known) {                                                  // it may now belong to one more playlist
+      if (!(known.playlists ||= []).includes(playlist)) { known.playlists.push(playlist); patchTrack(known.id, { playlists: known.playlists }).catch(() => {}); }
+      added.push(known); continue;
+    }
+    const item = { id: crypto.randomUUID(), file: file.name, sha256: sha, status: "reading", playlists: [playlist] };
     library.push(item); renderLibrary();
     try {
       item.buffer = await audio.decodeAudioData(bytes.slice(0));
@@ -61,7 +68,12 @@ export async function addFiles(files) {
     env.onChange?.();                                 // let the decks' advisor see the new track
   }
   storeInfo();
-  if (zipJustOpened) { zipJustOpened = false; planAll(); }   // a whole folder arrived: suggest where to start and how to go on
+  if (zipJustOpened) {                                  // a whole folder arrived: show it as a playlist and plan a route through it
+    zipJustOpened = false;
+    const latest = expanded[expanded.length - 1]?.playlist;
+    if (latest) shown = new Set([latest]);
+    planAll();
+  }
   return added;
 }
 
@@ -146,11 +158,32 @@ function chromaBars(ch) {
   return c;
 }
 
+// Playlists: each zip is one; files added on their own are "Single files". A track can be in several.
+export const playlistsOf = () => [...new Set(library.flatMap((t) => t.playlists || ["Single files"]))];
+let shown = new Set();                                  // the playlists ticked above the Library; none ticked = all
+const visible = () => library.filter((t) => !shown.size || (t.playlists || ["Single files"]).some((p) => shown.has(p)));
+
+function renderPlaylists() {
+  const box = $("playlists");
+  if (!box) return;
+  const names = playlistsOf();
+  box.innerHTML = names.length ? `<span class="muted small" data-help="playlists">Playlists:</span> ` : "";
+  names.forEach((n) => {
+    const count = library.filter((t) => (t.playlists || ["Single files"]).includes(n)).length;
+    const lab = document.createElement("label"); lab.className = "chip";
+    lab.innerHTML = `<input type="checkbox" ${shown.has(n) ? "checked" : ""}> ${esc(n)} (${count})`;
+    lab.querySelector("input").onchange = (e) => { e.target.checked ? shown.add(n) : shown.delete(n); renderLibrary(); };
+    box.append(lab);
+  });
+  if (names.length) box.insertAdjacentHTML("beforeend", `<span class="muted small">${shown.size ? `showing ${shown.size} playlist${shown.size > 1 ? "s" : ""} combined` : "showing all"}</span>`);
+}
+
 export function renderLibrary() {
   const ul = $("library");
   if (!ul) return;
+  renderPlaylists();
   ul.innerHTML = "";
-  library.forEach((t) => {
+  visible().forEach((t) => {
     const li = document.createElement("li");
     li.className = "card";
     if (t.status === "ready") {                       // drag a ready track onto a deck
@@ -159,7 +192,7 @@ export function renderLibrary() {
       li.ondragstart = (e) => e.dataTransfer.setData("text/mal-track", t.id);
     }
     const onDecks = env.decks.map((d, n) => (d.itemId === t.id ? `on deck ${n ? "B" : "A"}` : null)).filter(Boolean);
-    li.innerHTML = `<b>${esc(t.file)}</b> ${onDecks.map((s) => `<span class="badge">${s}</span>`).join(" ")}<div class="muted">${esc(t.status)}</div>`;
+    li.innerHTML = `<b>${esc(t.file)}</b> ${onDecks.map((s) => `<span class="badge">${s}</span>`).join(" ")} ${(t.playlists || []).map((p) => `<span class="badge pl">${esc(p)}</span>`).join(" ")}<div class="muted">${esc(t.status)}</div>`;
     if (t.status === "ready") {
       li.innerHTML += `<div class="facts">
         <span data-help="bpm">${t.bpm.toFixed(1)} BPM</span><span data-help="key">${esc(t.key)} (${t.camelot})</span>
@@ -302,8 +335,9 @@ export function whyNext(a, t) {
 }
 
 // Plan from everything in the library: tick every ready track, find a good order, and show the route.
-export function planAll() {
-  library.forEach((t) => (t.inSet = t.status === "ready"));
+export function planAll() {                            // from the playlists shown (all of them if none is ticked)
+  const pool = visible();
+  library.forEach((t) => (t.inSet = t.status === "ready" && pool.includes(t)));
   order = orderSet(library.filter((t) => t.inSet));
   renderLibrary(); renderSet();
   document.querySelector("[data-view=set]")?.click();
@@ -392,6 +426,9 @@ export function init(e) {
   sel.onchange = renderSet;
   $("autoOrder").onclick = () => { order = orderSet(order); renderSet(); };
   $("planAll").onclick = planAll;
+  const fmt = $("clipFormat");
+  Object.entries(FORMATS).forEach(([id, [w, h, label]]) => fmt.add(new Option(`${label} (${w} x ${h})`, id)));
+  $("exportClip").onclick = makeClip;
   $("setFromDecks").onclick = () => {                 // the two deck tracks become the set, A first
     const items = env.decks.map((d) => library.find((t) => t.id === d.itemId)).filter(Boolean);
     library.forEach((t) => (t.inSet = items.includes(t)));
@@ -425,4 +462,23 @@ export function markHook(id, at) {
   patchTrack(t.id, { hooks: t.hooks, hookStart: start }).catch(() => {});
   renderLibrary(); renderSet();
   return start;
+}
+
+// A video for Instagram from the current set (or, if there is none, a route through the playlists shown).
+async function makeClip() {
+  const status = $("clipInfo");
+  let tracks = order.length >= 2 ? order : orderSet(visible().filter((t) => t.status === "ready"));
+  if (tracks.length < 2) { status.textContent = "Add at least two tracks first."; return; }
+  const seconds = +$("clipLength").value, format = $("clipFormat").value;
+  const title = shown.size ? [...shown].join(" + ") : "My mix";
+  $("exportClip").disabled = true;
+  try {
+    const r = await exportClip({ tracks, seconds, format, title, ctx: env.ctx, monitor: $("clipMonitor").checked, onStatus: (s) => (status.textContent = s) });
+    const name = `${title.replace(/[^\w+-]+/g, "_")}_${format}_${seconds}s.${r.ext}`;
+    env.download(r.blob, name);
+    status.textContent = `Saved ${name}: ${r.tracks.length} tracks, ${r.bars} bars of each hook, ${Math.round(r.seconds)} s, ${(r.blob.size / 1e6).toFixed(1)} MB (${r.mime.split(";")[0]}).`;
+  } catch (err) {
+    status.textContent = `The video could not be made: ${err.message}`;
+  }
+  $("exportClip").disabled = false;
 }

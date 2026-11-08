@@ -65,6 +65,7 @@
         </div>
         <div class="row"><span id="storeInfo" class="muted small"></span>
         </div>
+        <div id="playlists" class="row"></div>
         <ul id="library"></ul>
         <h2 data-help="matrix">Which pairs mix well</h2>
         <div id="matrix"></div>
@@ -72,7 +73,7 @@
       <div data-panel="set" hidden>
         <div class="row">
           <label data-help="preset">Transition style <select id="presetChoice"></select></label>
-          <button id="planAll" data-help="planAll">Plan from all tracks</button>
+          <button id="planAll" data-help="planAll">Plan from the shown playlists</button>
           <button id="setFromDecks" data-help="setFromDecks">Use the deck tracks</button>
           <button id="autoOrder" data-help="autoOrder">Auto order</button>
           <button id="renderMp3" data-help="render">Render MP3</button>
@@ -81,6 +82,14 @@
           <input type="file" id="setFile" accept=".json" hidden>
         </div>
         <p id="setInfo" class="muted"></p>
+        <div class="clipbox">
+          <b data-help="clip">Video for Instagram</b>
+          <label>Shape <select id="clipFormat"></select></label>
+          <label>Length <select id="clipLength"><option value="60">60 s</option><option value="90">90 s</option><option value="180">180 s</option></select></label>
+          <label><input type="checkbox" id="clipMonitor"> listen while recording</label>
+          <button id="exportClip">Make the video</button>
+          <span id="clipInfo" class="small muted"></span>
+        </div>
         <div id="sequence"></div>
         <ol id="setOrder"></ol>
       </div>

@@ -47,6 +47,17 @@ With the style \emph{South Asian hook to hook}, each track plays from the start 
 \caption{A hook medley of the four example songs: the sequence at the top, then each track with why it follows and where it cuts.}\label{fig:medley}
 \end{figure}
 
+\section{Playlists: one per zip, combined when you want}
+Every zip you add becomes a playlist named after it; files added on their own go into \emph{Single files}. Everything is remembered on the device, so a playlist added last week is still there. A song that comes in two zips is stored once (it is recognised by its fingerprint) and belongs to both. The chips above the Library choose what you work with: tick one playlist to see and plan only it, or tick several to combine them, and \emph{Plan from the shown playlists} orders all their tracks as one set by the same musical rules (tempo, key, rising energy). When a new zip arrives, the app shows it and plans a route through it straight away.
+
+\section{A video for Instagram}
+Under the set, \emph{Video for Instagram} makes an MP4 of the mix: choose the shape (Story or Reel 9:16, feed portrait 4:5, square 1:1) and the length (60, 90 or 180 seconds). It takes the current set (or a route through the shown playlists), plays each track's hook for 16, 8 or 4 bars, as many tracks as fit the length, renders the audio, then plays it once while drawing every frame and recording picture and sound together. The frame shows the track's title and artist, its tempo, key, speed change and where its hook sits in the song; a live spectrum; the waveform moving past a playhead, coloured by track; what comes next and how the cut is made; and the progress through the mix (Figure~\ref{fig:clip}). Recording runs in real time, so a one-minute video takes a minute; keep the tab in front. For the two example playlists combined, a 60-second Story holds three hooks of 8 bars.
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{clip_frames.png}
+\caption{Three frames of a 60-second Story made from the two example playlists: one per hook, with what comes next and the progress bar.}\label{fig:clip}
+\end{figure}
+
 \section{The set file and remaking a mix}
 Rendering also saves \texttt{mix\_DATE\_set.json}. It records the app version, every track's name, length, measurements and \textbf{SHA-256 fingerprint} (a 64-character code that changes completely if one byte of the file changes), every transition with its speeds, times and automation points, and the timeline: when each track starts, from where, at what speed and with what loudness trim. To remake the mix, add the same files to the Library, press \emph{Open set file}, and render. The audio itself is never stored in the set file, so a set can be shared without sharing the music.
 
