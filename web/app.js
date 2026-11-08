@@ -2,11 +2,14 @@ import { NOTES, SPEED_OF_SOUND, SWARAS, downmix, estimateKey, estimateTempo, fre
 import { LESSONS as BASE_LESSONS } from "./lessons.js";
 import { MORE_LESSONS } from "./lessons_more.js";
 const LESSONS = [...BASE_LESSONS.slice(0, -1), ...MORE_LESSONS, BASE_LESSONS[BASE_LESSONS.length - 1]];
-import { APP_VERSION, init as initStudio } from "./studio.js";
+import { APP_VERSION, init as initStudio, renderLibrary } from "./studio.js";
 import { firstRun, initHelp, tour } from "./help.js";
 import { saveFile } from "./platform.js";
 
 const $ = (id) => document.getElementById(id);
+// Canvas colours come from the theme's CSS variables, so drawings stay visible on a light or a dark background.
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const grid = (alpha) => `rgba(${cssVar("--grid-rgb")},${alpha})`;
 let audio;
 let master;
 let recorder;
@@ -200,13 +203,13 @@ class Deck {
       const beat = 60 / this.bpm;
       let n = Math.ceil((from - this.firstBeat) / beat);
       for (let t = this.firstBeat + n * beat; t < to; t += beat, n++) {
-        g.fillStyle = ((n % 4) + 4) % 4 === 0 ? "#ffffffaa" : "#ffffff33";
+        g.fillStyle = ((n % 4) + 4) % 4 === 0 ? grid(0.65) : grid(0.2);
         g.fillRect(x(t), 0, 1, c.height);
       }
     }
     g.fillStyle = "#ffd166";
     this.cues.forEach((t) => g.fillRect(x(t), 0, 2, c.height));
-    g.fillStyle = "#fff";
+    g.fillStyle = cssVar("--ink");
     g.fillRect(x(this.position()) - 1, 0, 2, c.height);
     const t = this.position();
     const stamp = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
@@ -277,9 +280,9 @@ function drawSargam() {
   g.font = `${11 * devicePixelRatio}px system-ui`;
   for (let s = lo + 1; s < hi; s++) {
     const [name] = SWARAS[((s % 12) + 12) % 12];
-    g.fillStyle = name === "Sa" ? "#ffffff55" : "#ffffff18";
+    g.fillStyle = name === "Sa" ? grid(0.33) : grid(0.1);
     g.fillRect(44, y(s), c.width, 1);
-    g.fillStyle = "#9aa6b2";
+    g.fillStyle = cssVar("--muted");
     g.fillText(name + (s < 0 ? "," : s >= 12 ? "'" : ""), 4, y(s) + 4);
   }
   const d = decks[+$("followDeck").value];
@@ -296,7 +299,7 @@ function drawSargam() {
       $("swaraInfo").textContent = `${freq.toFixed(1)} Hz | ${n.name}${n.octave} | ${s.ratio} of Sa | ${s.cents >= 0 ? "+" : ""}${s.cents} cents`;
     }
   }
-  g.strokeStyle = "#4cc9e0";
+  g.strokeStyle = cssVar("--a");
   g.lineWidth = 1.5 * devicePixelRatio;
   g.beginPath();
   let pen = false;
@@ -318,16 +321,16 @@ function drawSpectrum() {
   const x = (f) => (Math.log10(f / 30) / Math.log10(16000 / 30)) * c.width;
   g.font = `${11 * devicePixelRatio}px system-ui`;
   for (const f of [50, 100, 250, 500, 1000, 4000, 10000]) {
-    g.fillStyle = "#ffffff25";
+    g.fillStyle = grid(0.15);
     g.fillRect(x(f), 0, 1, c.height);
-    g.fillStyle = "#9aa6b2";
+    g.fillStyle = cssVar("--muted");
     g.fillText(f >= 1000 ? `${f / 1000} kHz` : `${f} Hz`, x(f) + 3, 14);
   }
   decks.forEach((d, n) => {
     if (!d.analyser || !d.playing) return;
     const v = new Float32Array(d.analyser.frequencyBinCount);
     d.analyser.getFloatFrequencyData(v);
-    g.strokeStyle = n ? "#f2a65a" : "#4cc9e0";
+    g.strokeStyle = n ? cssVar("--b") : cssVar("--a");
     g.beginPath();
     v.forEach((db, i) => {
       const f = (i * audio.sampleRate) / d.analyser.fftSize;
@@ -349,7 +352,7 @@ function updateTone() {
   c.width = c.clientWidth * devicePixelRatio;
   const g = c.getContext("2d");
   g.clearRect(0, 0, c.width, c.height);
-  g.strokeStyle = "#4cc9e0";
+  g.strokeStyle = cssVar("--a");
   g.beginPath();
   for (let px = 0; px < c.width; px++) g.lineTo(px, c.height / 2 + (c.height / 2.4) * Math.sin(2 * Math.PI * f * (px / c.width) * 0.01));
   g.stroke();
@@ -501,6 +504,18 @@ updateTone();
 initStudio({ ctx, decks, download, get master() { ctx(); return master; } });
 initHelp();
 $("tourBtn").onclick = () => tour(0);
+// Theme: Auto follows the system (light or dark); the choice is remembered on this device.
+const THEMES = ["auto", "light", "dark"];
+function applyTheme(t) {
+  if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  $("themeBtn").textContent = `Theme: ${t}`;
+  try { localStorage.setItem("mal-theme", t); } catch {}
+  renderLibrary();
+}
+let theme = "auto";
+try { theme = localStorage.getItem("mal-theme") || "auto"; } catch {}
+applyTheme(theme);
+$("themeBtn").onclick = () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % 3]; applyTheme(theme); };
 $("version").textContent = `v${APP_VERSION}`;
 show("library");
 firstRun();

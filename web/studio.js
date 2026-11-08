@@ -3,7 +3,7 @@ import { NOTES, downmix, noteToFreq } from "./dsp.js";
 import { PRESETS, keyFit, orderSet, planTransition, setFile, shiftedKey, semitones, tempoMatch } from "./mix.js";
 import { mp3Blob, renderSet as renderMix, sha256, wavBlob } from "./render.js";
 
-export const APP_VERSION = "0.3.0";
+export const APP_VERSION = "0.3.1";
 const $ = (id) => document.getElementById(id);
 let env;                                   // { ctx, decks, download, master }
 export const library = [];                 // { id, file, buffer, sha256, duration, ...analysis }
@@ -38,7 +38,8 @@ export async function addFiles(files) {
   }
 }
 
-function spark(values, w = 220, h = 36, colour = "#4cc9e0") {
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function spark(values, w = 220, h = 36, colour = cssVar("--a")) {
   const c = document.createElement("canvas");
   c.width = w; c.height = h; c.className = "spark";
   const g = c.getContext("2d"), m = Math.max(...values, 1e-9);
@@ -54,9 +55,9 @@ function chromaBars(ch) {
   const g = c.getContext("2d");
   g.font = "8px system-ui";
   ch.forEach((v, i) => {
-    g.fillStyle = `hsl(${i * 30},60%,${35 + 30 * v}%)`;
+    g.fillStyle = `hsl(${i * 30},60%,${45 + 15 * v}%)`;
     g.fillRect(i * 18 + 2, 30 - v * 28, 14, v * 28);
-    g.fillStyle = "#9aa6b2"; g.fillText(NOTES[i], i * 18 + 3, 39);
+    g.fillStyle = cssVar("--muted"); g.fillText(NOTES[i], i * 18 + 3, 39);
   });
   return c;
 }

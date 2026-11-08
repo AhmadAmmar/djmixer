@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>try{const t=localStorage.getItem("mal-theme");if(t&&t!=="auto")document.documentElement.dataset.theme=t}catch{}</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mix and Learn</title>
 <link rel="stylesheet" href="style.css">
@@ -16,6 +17,7 @@
     <button id="record">Record mix</button>
     <button id="help">Keys</button>
     <button id="tourBtn">Tour</button>
+    <button id="themeBtn">Theme: auto</button>
     <span id="version" class="muted small"></span>
     <input type="file" id="projectFile" accept=".json" hidden>
   </div>
