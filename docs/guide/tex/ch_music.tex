@@ -1,0 +1,36 @@
+\chapter{Music from first principles}\label{ch:music}
+
+Every term a DJ uses has a physical meaning and a number behind it. This chapter builds them up in order; the Sound lab (Figure~\ref{fig:lab}) plays each one.
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{lab.png}
+\caption{The Sound lab. Each card plays one idea and says in a sentence what to listen for.}\label{fig:lab}
+\end{figure}
+
+\section{Sound, frequency and pitch}
+Sound is air pushed back and forth. The number of pushes per second is the \textbf{frequency}, in hertz (Hz); we hear it as \textbf{pitch}, high or low. The size of the pushes is the \textbf{amplitude}, heard as loudness. Sound travels at about 343\,m/s, so a wave's length is $\lambda = 343/f$: the A at 440\,Hz is 0.78\,m long, a bass note at 55\,Hz over 6\,m.
+
+\section{Notes, octaves and semitones}
+Doubling a frequency gives the same note an \textbf{octave} higher: the ear hears 220, 440 and 880\,Hz as A. Western music divides the octave into 12 equal steps, \textbf{semitones}, each multiplying the frequency by $2^{1/12} \approx 1.0595$. Notes are numbered (MIDI numbers, A4 = 69), so
+\[ f = 440 \times 2^{(n-69)/12}\ \text{Hz}, \qquad n = 69 + 12\log_2\frac{f}{440}. \]
+A \textbf{cent} is a hundredth of a semitone, small enough to describe a singer slightly flat.
+
+\section{Intervals and why some sound sweet}
+Two notes whose frequencies form a simple ratio line up often: in a \textbf{fifth}, 3:2, every third vibration of the upper note meets every second of the lower. The ear hears such combinations as smooth (consonant). A semitone, ratio 1.0595, almost never lines up and rubs (dissonant). A \textbf{major third} is close to 5:4, a \textbf{minor third} to 6:5. In sargam, Sa to Pa is the fifth.
+
+\section{Scales, keys and chords}
+A \textbf{scale} is the set of notes a piece mainly uses. A major scale takes steps of 2,2,1,2,2,2,1 semitones; the natural minor 2,1,2,2,1,2,2. The \textbf{key} names the home note and the scale, such as A minor. A \textbf{chord} is notes sounded together: root, third and fifth make a triad, major (bright) or minor (darker) depending on the third.
+
+Every major key has a \textbf{relative minor} using exactly the same seven notes (C major and A minor). This is why computers, and people, sometimes confuse them: the notes are identical and only the sense of home differs.
+
+\section{The Camelot wheel}
+DJs use the \textbf{Camelot wheel}, which numbers the 24 keys like a clock: 1 to 12, with A for minor and B for major. Neighbours differ by one note, so they mix smoothly; the same number with the other letter is the relative major or minor; a diagonal move (one number and a change of letter) shares most notes and changes the mood. The app scores these moves: same key 1, relative 0.9, neighbour 0.8, diagonal 0.6, two steps 0.5, further apart less.
+
+\section{Timbre}
+Real instruments vibrate at a main frequency and at multiples of it, the \textbf{overtones}. Their mix is the \textbf{timbre}, why a flute and a sitar playing the same Sa sound different. In the Sound lab the same 220\,Hz is played as a sine (no overtones), triangle, square and sawtooth (strong overtones).
+
+\section{Beat, tempo, bar and phrase}
+The \textbf{beat} is the pulse; the \textbf{tempo} is beats per minute (BPM). Beats group into \textbf{bars} (mostly 4), bars into \textbf{phrases} (8 or 16 bars). At tempo $B$ one bar lasts $4 \times 60 / B$ seconds: 2\,s at 120\,BPM. Songs change section on phrase boundaries, so transitions should too. Tempos twice apart (70 and 140\,BPM) share every other beat: \textbf{half} and \textbf{double time}.
+
+\section{Indian terms: sargam, tala and sam}
+\textbf{Sargam} names notes by their distance from a chosen \emph{Sa}: Sa Re Ga Ma Pa Dha Ni, with komal (flat) Re, Ga, Dha, Ni and tivra (sharp) Ma, twelve steps in all. A \textbf{tala} is a rhythmic cycle, such as teentaal of 16 beats, and its first beat, the \textbf{sam}, is where the cycle lands and the ear expects arrival. Bollywood songs often combine a pop four-beat bar with a dhol or tabla pattern; the sam is the natural place to change songs.

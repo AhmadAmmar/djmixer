@@ -1,0 +1,42 @@
+\chapter{Inside the code}\label{ch:code}
+
+The app is ordinary modern JavaScript in separate modules, loaded by the browser directly. Nothing is compiled, so any file can be opened, read and changed, and the change appears in the browser at once (Chapter~\ref{ch:start}).
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+File & What it does \\
+\midrule
+\texttt{index.html}, \texttt{style.css} & The page and its look; touch-screen and narrow-screen rules at the end of the stylesheet. \\
+\texttt{app.js} & Decks, crossfader, sync, live views, lessons, keyboard keys; starts everything. \\
+\texttt{dsp.js} & All measurement: notes, YIN pitch, FFT, onsets, tempo, chroma, key, loudness, brightness, sections. \\
+\texttt{mix.js} & The DJ's rules as pure functions: tempo matching, key after a speed change, key fit, presets, transition plans, set order, WAV encoding, set files. \\
+\texttt{render.js} & Plays a planned set through filters in an OfflineAudioContext; WAV and MP3 output; file fingerprints. \\
+\texttt{studio.js} & Library, pair table, Set builder and Sound lab screens. \\
+\texttt{help.js} & Explanations for every control and the first-run tour. \\
+\texttt{platform.js} & The only difference between desktop and Android: how a file is saved. \\
+\texttt{analyse.worker.js} & Runs the analysis in the background so the page stays responsive. \\
+\texttt{lessons.js}, \texttt{lessons\_more.js} & The lessons. \\
+\texttt{vendor/lame.min.js} & LAME, the open-source MP3 encoder (LGPL), compiled to JavaScript (lamejs 1.2.1). \\
+\bottomrule
+\end{tabularx}
+
+\section{How data flows}
+A file is read as bytes, fingerprinted (SHA-256), decoded by the browser into samples, reduced to one channel at about 11\,kHz, and analysed in the worker. The analysis feeds the Library cards and the pair table. Ticked tracks go to \texttt{planTransition} and \texttt{orderSet}, whose plans go to \texttt{renderSet}; the rendered samples go to the WAV or MP3 encoder, and the plans to the set file.
+
+\section{Tests}
+\begin{lstlisting}[language=bash]
+npm test        # runs web/test_dsp.mjs and web/test_mix.mjs in Node
+\end{lstlisting}
+The tests use \emph{known answers}: synthetic tracks of known tempo and key, pure tones of known pitch, set rules with hand-checked results (70 and 140\,BPM meet at double time; A minor up a semitone is 3A). A change that breaks a rule fails a test before it reaches a user.
+
+\section{Adding a preset}
+A preset is an entry in \texttt{PRESETS} in \texttt{mix.js}: a name, a length in bars, the largest stretch it accepts, the rule in words, and a function returning automation points. Each point has a time in bars and any of: \texttt{aGain}, \texttt{bGain} (volume 0 to 1), \texttt{aLow}, \texttt{bLow} (low EQ in dB), \texttt{aCut} (A's low-pass frequency), \texttt{bHigh} (B's high-pass frequency), \texttt{aEcho} (echo feedback). Add it, reload, and it appears in the Set builder.
+
+\section{Open-source parts and their science}
+\begin{itemize}
+\item \textbf{Web Audio API} (in every browser): audio graphs of sources, filters (biquad: two poles and two zeros, the standard EQ building block), gains, delays and compressors, played live or rendered offline.
+\item \textbf{LAME} via lamejs: MP3 compression uses a psychoacoustic model to discard what the ear cannot hear next to louder sounds (masking).
+\item \textbf{Krumhansl--Kessler key profiles} (1982): listening experiments on how well each note fits a key.
+\item \textbf{YIN} (de Cheveign\'e and Kawahara, 2002): pitch from the self-similarity of a wave.
+\item \textbf{Capacitor} (Ionic): wraps a web app in a native Android or iOS shell (Chapter~\ref{ch:android}).
+\end{itemize}

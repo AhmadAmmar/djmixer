@@ -1,0 +1,39 @@
+\chapter{Start here}\label{ch:start}
+
+Mix and Learn is one program that does three jobs. It \emph{teaches}: lessons, a sound lab and an explanation for every control. It \emph{measures}: load your own tracks and it finds their tempo, key, loudness, brightness and structure. And it \emph{mixes}: it plans a set, explains every decision, renders the mix as an MP3 or WAV file, and saves a small set file from which the same mix can be made again.
+
+It is a web app: plain HTML, CSS and JavaScript with no build step. On a computer it runs in any modern browser. On Android the very same files are wrapped into an app with Capacitor (Chapter~\ref{ch:android}). There is one code base, so the desktop and phone versions never drift apart.
+
+\section{Run it on your computer}
+You need Python (any recent version) to serve the files; nothing else.
+\begin{lstlisting}[language=bash]
+git clone https://github.com/AhmadAmmar/djmixer.git
+cd djmixer
+python dev/serve.py
+\end{lstlisting}
+Your browser opens \texttt{http://localhost:8765}. The server watches every file in \texttt{web/} and the git branch: whenever you save a file, commit, pull or rebuild, every open page reloads itself, and the server tells the browser never to use a cached copy. You always see the latest version without pressing anything.
+
+\section{The first visit}
+The first time the app opens, a short tour points at each part in turn (Figure~\ref{fig:tour}); the \emph{Tour} button repeats it. After that, anything with a dotted underline or a dashed border has an explanation: hover over it with a mouse, or press and hold it on a touch screen. Each explanation has four parts: what it is, what it means musically, the science behind it, and the file and function in the code.
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{tour.png}
+\caption{The first-run tour, here on its second step, the Library. The highlighted part has an orange outline; the box at the bottom right explains it.}\label{fig:tour}
+\end{figure}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{help.png}
+\caption{Hovering over \emph{Sync B to A} opens its explanation: what it does, the musical reason, the formula, and where the code is.}\label{fig:help}
+\end{figure}
+
+\section{The parts of the screen}
+\begin{description}
+\item[Lessons] (left) Sixteen short lessons, each with words, something to try, the formula and the code. They run from \emph{sound is air moving} to \emph{your first real mix}.
+\item[Decks A and B] Two players with speed and three EQ knobs, and a crossfader between them: the controls of a DJ console.
+\item[Library] Add audio files; each is measured and drawn. A table shows how well every pair would mix.
+\item[Set builder] Choose tracks, a transition style and an order, then render.
+\item[Sound lab] Hear the ideas: a note, an octave, a fifth, chords, timbre, beats and bars, half time.
+\item[Sargam, Spectrum, Tone tool] Live views of pitch against the swaras, of all frequencies at once, and of a single tone.
+\end{description}
+
+Nothing you load leaves your device: files are read by the browser itself, and no audio is copied into project or set files. That matters both for privacy and because commercial music may not be shared.

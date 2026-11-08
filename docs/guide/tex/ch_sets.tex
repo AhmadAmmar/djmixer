@@ -1,0 +1,42 @@
+\chapter{Building and remaking a set}\label{ch:sets}
+
+\section{Step by step in the app}
+\begin{enumerate}
+\item \textbf{Library}: press \emph{Add audio files} and choose your tracks, or drop them on the panel. Wait for each card to say \emph{ready}.
+\item Read the \textbf{pair table} (Figure~\ref{fig:matrix}): green pairs blend easily, amber with care, red are better cut or echoed out.
+\item Tick \emph{in the set} on each track you want.
+\item \textbf{Set builder}: choose a \emph{Transition style}, or leave \emph{Auto}; press \emph{Auto order}, or move tracks with \emph{Up}.
+\item Read each transition (Figure~\ref{fig:set}): where it leaves the old track, the speed and pitch change, the key after it, and why the style was chosen. Open \emph{The rule behind this preset} for the scene's habit.
+\item Press \emph{Render MP3} (or WAV). The app plays the whole set through its filters faster than real time, encodes it, and saves the audio and a set file.
+\end{enumerate}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{matrix.png}
+\caption{How every pair of tracks would mix: speed change for the second track and key fit after it.}\label{fig:matrix}
+\end{figure}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{set.png}
+\caption{The Set builder with the four tracks in automatic order, each transition explained.}\label{fig:set}
+\end{figure}
+
+\section{Set 1: Alfaaz and Faded}
+\input{generated/set1}
+Tempos 80 and 90\,BPM are 11\,\% apart, and even at half or double time no match is closer, so blending would audibly bend both voices. The plan echoes \emph{Alfaaz} out on a phrase boundary and starts \emph{Faded} clean on its first beat.
+
+\section{Set 2: Socha Hai and It's the Time to Disco}
+\input{generated/set2}
+Here the tempos are within about 1.3\,\%, a change of a fifth of a semitone, and the keys sit diagonally on the wheel, so a long blend works. Both are Bollywood songs: if the blend sounds busy because both have vocals, choose the \emph{Bollywood and desi} style instead, which cuts cleanly on the sam.
+
+\section{Both sets together}
+\input{generated/set_all}
+The automatic order starts with the calmest track and moves through the slower pair into the faster one. The first two changes are echo-outs because the gap from 90 to 133\,BPM cannot be bridged without changing the songs; between the two fast tracks it blends.
+
+\section{The set file and remaking a mix}
+Rendering also saves \texttt{mix\_DATE\_set.json}. It records the app version, every track's name, length, measurements and \textbf{SHA-256 fingerprint} (a 64-character code that changes completely if one byte of the file changes), every transition with its speeds, times and automation points, and the timeline: when each track starts, from where, at what speed and with what loudness trim. To remake the mix, add the same files to the Library, press \emph{Open set file}, and render. The audio itself is never stored in the set file, so a set can be shared without sharing the music.
+
+From the command line, the same planning runs without a browser:
+\begin{lstlisting}[language=bash]
+node tools/plan.mjs --order auto file1.mp3 file2.mp3 file3.mp3
+node tools/plan.mjs --preset bollywood-cut "Socha Hai.mp3" "Disco.mp3"
+\end{lstlisting}

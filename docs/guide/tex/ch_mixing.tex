@@ -1,0 +1,36 @@
+\chapter{Mixing: by ear, by science, by machine}\label{ch:mixing}
+
+A mix moves from one track to the next so that the listener never hears a gap or a clash. Three things must be right: the beats line up, the sounds do not fight, and the change comes at a natural moment.
+
+\section{Beatmatching and its cost}
+To make track B's beats meet track A's, play B at rate $r = \text{BPM}_A/\text{BPM}_B$. Playing faster also raises pitch, as on a record, by
+\[ \Delta = 12\log_2 r \ \text{semitones}. \]
+A 2\,\% speed-up is 0.34 semitone, hard to hear; 6\,\% is a full semitone, and a voice starts to sound wrong. Tempos can also meet at half or double time ($r = 2\,\text{BPM}_A/\text{BPM}_B$ or half of it); the app tries all three and keeps the smallest change. Professional software can change speed without changing pitch (time-stretching); this app deliberately does not, so you hear the physics.
+
+\section{Keys after the speed change}
+Because speed moves pitch, it moves the key: B's root shifts by $\Delta$ rounded to whole semitones. The app reads B's new Camelot code and scores it against A's (Chapter~\ref{ch:music}). Two melodies in clashing keys should not overlap: mix on drums, or after the vocals end.
+
+\section{EQ, crossfade and loudness}
+\begin{itemize}
+\item \textbf{Bass swap.} Two basslines together are muddy. Bring B in with its low band cut (a shelf below 250\,Hz at $-26$\,dB), then swap on a phrase boundary.
+\item \textbf{Equal-power crossfade.} Gains $\cos(x\pi/2)$ and $\sin(x\pi/2)$ keep the summed power constant, so there is no dip in the middle.
+\item \textbf{Loudness matching.} Every track is trimmed to $-14$\,dB RMS before mixing, as a DJ sets the gain knob, and a limiter on the master stops the overlap from clipping.
+\end{itemize}
+
+\section{How different scenes mix}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Scene & Habit, and why \\
+\midrule
+House, techno, EDM & Steady machine tempos (120--128\,BPM) and long DJ intros: lock the beats, blend 16--32 bars, swap the bass on a phrase. \\
+English pop, radio & Songs built on vocals; radio edits start singing quickly: short overlaps (about 4 bars) at the end of a chorus. \\
+Bollywood, desi & Often played by live musicians, so tempo drifts; vocals carry the song and big stretches sound wrong: keep stretches small, change on the sam after a fill or a shout, use the dhol as a bridge, cut rather than blend. \\
+Acid house, acid techno & Built on a resonant filter's squelch: close the old track's filter into a throb while the new one opens. \\
+Any & When nothing fits: echo out, then start clean on a downbeat. \\
+\bottomrule
+\end{tabularx}
+
+These habits are the app's \textbf{presets} (\texttt{web/mix.js}). Each is a list of automation points (volume, low EQ, filter, echo) placed in bars, so it scales with tempo, plus the largest stretch it accepts: house and acid 8\,\%, Bollywood 5\,\%, pop 4\,\%, echo-out none.
+
+\section{Automatic choices}
+With \emph{Auto}, the app picks a preset from the measurements: more than 8\,\% tempo change even at half or double time gives an echo-out; 4--8\,\% a clean cut; clashing keys a short crossfade; otherwise a long blend with a bass swap. The order of a set is found greedily: start from the calmest track, then always take the remaining track that scores best on tempo closeness, key fit after the speed change, and a small bonus for being louder, so energy builds. These are rules of thumb written as code: your ear is the judge, and you can override every choice.

@@ -5,3 +5,10 @@ __pycache__/
 *.m4a
 *.ogg
 .venv/
+node_modules/
+android/app/build/
+android/.gradle/
+android/local.properties
+*.apk
+docs/guide/build/
+docs/guide/tex/web_figs.*

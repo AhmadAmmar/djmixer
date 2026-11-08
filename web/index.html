@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mix and Learn</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Mix and Learn</h1>
+  <div class="tools">
+    <button id="demos">Load demo tracks</button>
+    <button id="save">Save project</button>
+    <button id="loadProject">Open project</button>
+    <button id="record">Record mix</button>
+    <button id="help">Keys</button>
+    <button id="tourBtn">Tour</button>
+    <span id="version" class="muted small"></span>
+    <input type="file" id="projectFile" accept=".json" hidden>
+  </div>
+</header>
+<main>
+  <aside id="lessons">
+    <h2>Lessons</h2>
+    <ol id="lessonList"></ol>
+    <article id="lesson"></article>
+  </aside>
+  <section id="desk">
+    <div class="deck" id="deckA"></div>
+    <div class="middle">
+      <div class="info" id="match">Load two tracks to compare them.</div>
+      <label class="fader" data-help="crossfader">A <input id="xfade" type="range" min="0" max="1" step="0.005" value="0.5"> B</label>
+      <button id="sync" data-help="sync">Sync B to A</button>
+    </div>
+    <div class="deck" id="deckB"></div>
+    <nav class="tabs">
+      <button data-view="library" class="on">Library</button>
+      <button data-view="set">Set builder</button>
+      <button data-view="lab">Sound lab</button>
+      <button data-view="sargam" data-help="sargam">Sargam</button>
+      <button data-view="spectrum" data-help="spectrum">Spectrum</button>
+      <button data-view="tone">Tone tool</button>
+      <button data-view="playlist">Playlist</button>
+    </nav>
+    <div id="views">
+      <div data-panel="library" id="libraryDrop">
+        <div class="row">
+          <label class="filebtn">Add audio files <input type="file" id="libFiles" accept="audio/*" multiple hidden></label>
+          <span class="muted small">or drop files here. They stay on this device: nothing is uploaded.</span>
+        </div>
+        <ul id="library"></ul>
+        <h2 data-help="matrix">Which pairs mix well</h2>
+        <div id="matrix"></div>
+      </div>
+      <div data-panel="set" hidden>
+        <div class="row">
+          <label data-help="preset">Transition style <select id="presetChoice"></select></label>
+          <button id="autoOrder" data-help="autoOrder">Auto order</button>
+          <button id="renderMp3" data-help="render">Render MP3</button>
+          <button id="renderWav" data-help="render">Render WAV</button>
+          <button id="openSet" data-help="setFile">Open set file</button>
+          <input type="file" id="setFile" accept=".json" hidden>
+        </div>
+        <p id="setInfo" class="muted"></p>
+        <ol id="setOrder"></ol>
+      </div>
+      <div data-panel="lab" hidden>
+        <div class="row">
+          <label class="grow">Tempo for the beat examples: <span id="labBpmOut">120</span> BPM <input id="labBpm" type="range" min="60" max="180" value="120"></label>
+          <button id="labStop">Stop</button>
+        </div>
+        <div id="labButtons" class="grid"></div>
+      </div>
+      <div data-panel="sargam" hidden>
+        <div class="row">
+          <label>Follow <select id="followDeck"><option value="0">Deck A</option><option value="1">Deck B</option></select></label>
+          <label>Sa <select id="saNote"></select></label>
+          <span id="swaraNow" class="big">&ndash;</span>
+          <span id="swaraInfo" class="muted"></span>
+        </div>
+        <canvas id="sargam" height="300" aria-label="Pitch line against swara levels"></canvas>
+      </div>
+      <div data-panel="spectrum" hidden>
+        <canvas id="spectrum" height="300" aria-label="Live frequency spectrum"></canvas>
+      </div>
+      <div data-panel="tone" hidden>
+        <div class="row">
+          <label class="grow">Frequency <input id="toneF" type="range" min="55" max="1760" step="1" value="440"></label>
+          <button id="tonePlay">Play tone</button>
+        </div>
+        <p id="toneInfo" class="big"></p>
+        <canvas id="toneWave" height="120" aria-label="The shape of the wave"></canvas>
+      </div>
+      <div data-panel="playlist" hidden>
+        <p class="muted">Paste a list of titles, or open an M3U or CSV file. For a Spotify playlist, Exportify writes a CSV of its track names. Spotify does not let other apps read its audio, so each track still needs a file you own. Press Load beside a track to attach one.</p>
+        <div class="row">
+          <input type="file" id="playlistFile" accept=".m3u,.m3u8,.csv,.txt">
+          <button id="exportM3U">Save as M3U</button>
+        </div>
+        <textarea id="playlistText" rows="3" placeholder="One title per line"></textarea>
+        <button id="playlistAdd">Add these</button>
+        <ul id="playlist"></ul>
+      </div>
+    </div>
+  </section>
+</main>
+<dialog id="keys">
+  <h2>Keys</h2>
+  <p><b>Space</b> play deck A. <b>Enter</b> play deck B. <b>S</b> sync B to A. <b>Left and Right</b> move the crossfader. <b>C</b> mark a cue on the deck being followed. <b>1 to 4</b> jump to a cue. <b>Scroll</b> over a waveform to zoom. <b>Click</b> a waveform to jump there.</p>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+<script src="vendor/lame.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

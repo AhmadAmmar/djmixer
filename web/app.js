@@ -1,0 +1,507 @@
+import { NOTES, SPEED_OF_SOUND, SWARAS, downmix, estimateKey, estimateTempo, freqToNote, keyRelation, makeDemo, noteToFreq, parsePlaylist, rateToSemitones, toM3U, toSwara, yin } from "./dsp.js";
+import { LESSONS as BASE_LESSONS } from "./lessons.js";
+import { MORE_LESSONS } from "./lessons_more.js";
+const LESSONS = [...BASE_LESSONS.slice(0, -1), ...MORE_LESSONS, BASE_LESSONS[BASE_LESSONS.length - 1]];
+import { APP_VERSION, init as initStudio } from "./studio.js";
+import { firstRun, initHelp, tour } from "./help.js";
+import { saveFile } from "./platform.js";
+
+const $ = (id) => document.getElementById(id);
+let audio;
+let master;
+let recorder;
+const ctx = () => {
+  if (!audio) {
+    audio = new AudioContext();
+    master = audio.createGain();
+    master.connect(audio.destination);
+    decks.forEach((d) => d.wire());
+    setFade(+$("xfade").value);
+  }
+  if (audio.state === "suspended") audio.resume();
+  return audio;
+};
+
+class Deck {
+  constructor(el, name) {
+    Object.assign(this, { el, name, buffer: null, file: "", source: null, playing: false, offset: 0, startedAt: 0, rate: 1, bpm: 0, firstBeat: 0, key: null, cues: [], zoom: 1, peaks: null });
+    el.innerHTML = `<h3>${name}: no track</h3><canvas height="160"></canvas><div class="stats">&nbsp;</div>
+      <div class="row"><button data-a="play">Play</button><button data-a="load">Load</button><button data-a="cue">Cue</button><input type="file" accept="audio/*" hidden></div>
+      <div class="knobs">
+        <label>Volume<input data-k="gain" type="range" min="0" max="1.2" step="0.01" value="1"></label>
+        <label>Speed<input data-k="rate" type="range" min="0.8" max="1.25" step="0.001" value="1"></label>
+        <label data-help="eq">Low<input data-k="low" type="range" min="-30" max="6" step="0.5" value="0"></label>
+        <label>Mid<input data-k="mid" type="range" min="-30" max="6" step="0.5" value="0"></label>
+        <label>High<input data-k="high" type="range" min="-30" max="6" step="0.5" value="0"></label>
+      </div>`;
+    this.title = el.querySelector("h3");
+    this.canvas = el.querySelector("canvas");
+    this.stats = el.querySelector(".stats");
+    const input = el.querySelector("input[type=file]");
+    el.querySelector("[data-a=play]").onclick = () => this.toggle();
+    el.querySelector("[data-a=load]").onclick = () => input.click();
+    el.querySelector("[data-a=cue]").onclick = () => this.addCue();
+    input.onchange = () => input.files[0] && this.loadFile(input.files[0]);
+    el.querySelectorAll("[data-k]").forEach((s) => (s.oninput = () => this.set(s.dataset.k, +s.value)));
+    this.canvas.onclick = (e) => {
+      if (!this.buffer) return;
+      const r = this.canvas.getBoundingClientRect();
+      const [from, to] = this.window();
+      this.seek(from + ((e.clientX - r.left) / r.width) * (to - from));
+    };
+    this.canvas.onwheel = (e) => { e.preventDefault(); this.zoom = Math.min(64, Math.max(1, this.zoom * (e.deltaY < 0 ? 1.25 : 0.8))); };
+    el.ondragover = (e) => e.preventDefault();
+    el.ondrop = (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) this.loadFile(e.dataTransfer.files[0]); };
+  }
+
+  wire() {
+    this.bands = [["lowshelf", 250, "low"], ["peaking", 1000, "mid"], ["highshelf", 4000, "high"]].map(([type, f, k]) => {
+      const b = audio.createBiquadFilter();
+      b.type = type;
+      b.frequency.value = f;
+      b.key = k;
+      return b;
+    });
+    this.input = this.bands[0];
+    this.bands[0].connect(this.bands[1]);
+    this.bands[1].connect(this.bands[2]);
+    this.gain = audio.createGain();
+    this.fade = audio.createGain();
+    this.analyser = audio.createAnalyser();
+    this.analyser.fftSize = 4096;
+    this.bands[2].connect(this.gain);
+    this.gain.connect(this.analyser);
+    this.gain.connect(this.fade);
+    this.fade.connect(master);
+    this.el.querySelectorAll("[data-k]").forEach((s) => this.set(s.dataset.k, +s.value));
+  }
+
+  set(key, value) {
+    if (key === "rate") {
+      this.setRate(value);
+      return;
+    }
+    if (!audio) return;
+    if (key === "gain") this.gain.gain.value = value;
+    else this.bands.find((b) => b.key === key).gain.value = value;
+  }
+
+  setRate(value) {
+    const pos = this.position();
+    this.rate = value;
+    this.offset = pos;
+    if (this.playing) {
+      this.startedAt = audio.currentTime;
+      this.source.playbackRate.value = value;
+    }
+    this.el.querySelector("[data-k=rate]").value = value;
+    compare();
+  }
+
+  position() {
+    if (!this.playing) return this.offset;
+    return Math.min(this.buffer.duration, this.offset + (audio.currentTime - this.startedAt) * this.rate);
+  }
+
+  start() {
+    ctx();
+    if (!this.buffer || this.playing) return;
+    this.source = audio.createBufferSource();
+    this.source.buffer = this.buffer;
+    this.source.playbackRate.value = this.rate;
+    this.source.connect(this.input);
+    this.source.start(0, this.offset);
+    this.startedAt = audio.currentTime;
+    this.playing = true;
+    this.el.querySelector("[data-a=play]").textContent = "Pause";
+  }
+
+  stop() {
+    if (!this.playing) return;
+    this.offset = this.position();
+    this.source.stop();
+    this.playing = false;
+    this.el.querySelector("[data-a=play]").textContent = "Play";
+  }
+
+  toggle() { this.playing ? this.stop() : this.start(); }
+
+  seek(t) {
+    const was = this.playing;
+    this.stop();
+    this.offset = Math.max(0, Math.min(t, this.buffer.duration - 0.01));
+    if (was) this.start();
+  }
+
+  addCue() {
+    if (this.buffer && this.cues.length < 4) this.cues.push(this.position());
+  }
+
+  async loadFile(file) {
+    ctx();
+    this.title.textContent = `${this.name}: reading ${file.name}`;
+    try {
+      this.setBuffer(await audio.decodeAudioData(await file.arrayBuffer()), file.name);
+    } catch {
+      this.title.textContent = `${this.name}: this file could not be read`;
+    }
+  }
+
+  setBuffer(buffer, name, keep = false) {
+    this.stop();
+    Object.assign(this, { buffer, file: name, offset: 0, zoom: 1 });
+    if (!keep) this.cues = [];
+    this.title.textContent = `${this.name}: ${name}`;
+    this.stats.textContent = "Measuring tempo and key...";
+    const chans = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
+    const mono = chans[0];
+    const size = 2000;
+    const step = Math.floor(mono.length / size) || 1;
+    this.peaks = Float32Array.from({ length: size }, (_, i) => {
+      let m = 0;
+      for (let k = 0; k < step; k += 8) m = Math.max(m, Math.abs(mono[i * step + k] || 0));
+      return m;
+    });
+    setTimeout(() => {
+      const f = Math.round(buffer.sampleRate / 11025);
+      const x = downmix(chans, f);
+      const sr = buffer.sampleRate / f;
+      Object.assign(this, estimateTempo(x, sr));
+      this.key = estimateKey(x, sr);
+      this.stats.textContent = "";
+      compare();
+    }, 30);
+  }
+
+  window() {
+    const d = this.buffer.duration;
+    const span = d / this.zoom;
+    const from = this.zoom === 1 ? 0 : Math.max(0, Math.min(d - span, this.position() - span / 2));
+    return [from, from + span];
+  }
+
+  draw() {
+    const c = this.canvas;
+    c.width = c.clientWidth * devicePixelRatio;
+    const g = c.getContext("2d");
+    const colour = getComputedStyle(this.el).getPropertyValue("--c");
+    g.clearRect(0, 0, c.width, c.height);
+    if (!this.buffer) return;
+    const [from, to] = this.window();
+    const x = (t) => ((t - from) / (to - from)) * c.width;
+    g.fillStyle = colour;
+    const d = this.buffer.duration;
+    for (let px = 0; px < c.width; px++) {
+      const i = Math.floor(((from + (px / c.width) * (to - from)) / d) * this.peaks.length);
+      const h = (this.peaks[i] || 0) * c.height;
+      g.fillRect(px, (c.height - h) / 2, 1, h);
+    }
+    if (this.bpm && to - from < 90) {
+      const beat = 60 / this.bpm;
+      let n = Math.ceil((from - this.firstBeat) / beat);
+      for (let t = this.firstBeat + n * beat; t < to; t += beat, n++) {
+        g.fillStyle = ((n % 4) + 4) % 4 === 0 ? "#ffffffaa" : "#ffffff33";
+        g.fillRect(x(t), 0, 1, c.height);
+      }
+    }
+    g.fillStyle = "#ffd166";
+    this.cues.forEach((t) => g.fillRect(x(t), 0, 2, c.height));
+    g.fillStyle = "#fff";
+    g.fillRect(x(this.position()) - 1, 0, 2, c.height);
+    const t = this.position();
+    const stamp = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+    if (this.bpm) {
+      const beatNo = Math.max(0, Math.floor((t - this.firstBeat) / (60 / this.bpm)));
+      this.stats.textContent = `${stamp} | bar ${Math.floor(beatNo / 4) + 1}, beat ${(beatNo % 4) + 1} | ${(this.bpm * this.rate).toFixed(1)} BPM | ${this.key.name} (${this.key.camelot})`;
+    }
+  }
+}
+
+const decks = [new Deck($("deckA"), "Deck A"), new Deck($("deckB"), "Deck B")];
+
+function setFade(x) {
+  if (!audio) return;
+  decks[0].fade.gain.value = Math.cos((x * Math.PI) / 2);
+  decks[1].fade.gain.value = Math.sin((x * Math.PI) / 2);
+}
+$("xfade").oninput = (e) => { ctx(); setFade(+e.target.value); };
+
+function compare() {
+  const [a, b] = decks;
+  if (!a.bpm || !b.bpm) return;
+  const needed = (a.bpm * a.rate) / b.bpm;
+  $("match").innerHTML = `Tempo gap ${Math.abs(a.bpm * a.rate - b.bpm * b.rate).toFixed(1)} BPM.<br>To match, B plays at ${needed.toFixed(3)} times, which moves its pitch ${rateToSemitones(needed).toFixed(2)} semitones.<br>Keys: ${keyRelation(a.key.camelot, b.key.camelot)}.`;
+}
+
+function sync() {
+  const [a, b] = decks;
+  if (!a.bpm || !b.bpm) return;
+  b.setRate((a.bpm * a.rate) / b.bpm);
+  if (a.playing && b.playing) {
+    const beatA = 60 / a.bpm;
+    const phase = (((a.position() - a.firstBeat) % beatA) + beatA) % beatA / beatA;
+    const beatB = 60 / b.bpm;
+    const n = Math.floor((b.position() - b.firstBeat) / beatB);
+    b.seek(b.firstBeat + (n + phase) * beatB);
+  }
+}
+$("sync").onclick = sync;
+
+function demoBuffer(bpm, root, minor) {
+  ctx();
+  const sr = audio.sampleRate;
+  const data = makeDemo(bpm, root, minor, 60, sr);
+  const buffer = audio.createBuffer(1, data.length, sr);
+  buffer.copyToChannel(data, 0);
+  return buffer;
+}
+function loadDemos() {
+  decks[0].setBuffer(demoBuffer(120, 57, true), "Demo A, 120 BPM, A minor");
+  decks[1].setBuffer(demoBuffer(126, 60, false), "Demo B, 126 BPM, C major");
+}
+$("demos").onclick = loadDemos;
+
+// Sargam view
+const saSelect = $("saNote");
+for (let m = 48; m <= 72; m++) saSelect.add(new Option(`${NOTES[m % 12]}${Math.floor(m / 12) - 1} (${noteToFreq(m).toFixed(1)} Hz)`, m));
+saSelect.value = 60;
+const trace = [];
+function drawSargam() {
+  const c = $("sargam");
+  c.width = c.clientWidth * devicePixelRatio;
+  const g = c.getContext("2d");
+  const sa = noteToFreq(+saSelect.value);
+  const lo = -13, hi = 13;
+  const y = (s) => c.height - ((s - lo) / (hi - lo)) * c.height;
+  g.clearRect(0, 0, c.width, c.height);
+  g.font = `${11 * devicePixelRatio}px system-ui`;
+  for (let s = lo + 1; s < hi; s++) {
+    const [name] = SWARAS[((s % 12) + 12) % 12];
+    g.fillStyle = name === "Sa" ? "#ffffff55" : "#ffffff18";
+    g.fillRect(44, y(s), c.width, 1);
+    g.fillStyle = "#9aa6b2";
+    g.fillText(name + (s < 0 ? "," : s >= 12 ? "'" : ""), 4, y(s) + 4);
+  }
+  const d = decks[+$("followDeck").value];
+  if (d.analyser && d.playing) {
+    const buf = new Float32Array(2048);
+    d.analyser.getFloatTimeDomainData(buf);
+    const { freq, clarity } = yin(buf, audio.sampleRate);
+    const ok = freq > 0 && clarity > 0.8;
+    trace.push(ok ? toSwara(freq, sa).semis : null);
+    if (trace.length > 600) trace.shift();
+    if (ok) {
+      const s = toSwara(freq, sa), n = freqToNote(freq);
+      $("swaraNow").textContent = `${s.name}`;
+      $("swaraInfo").textContent = `${freq.toFixed(1)} Hz | ${n.name}${n.octave} | ${s.ratio} of Sa | ${s.cents >= 0 ? "+" : ""}${s.cents} cents`;
+    }
+  }
+  g.strokeStyle = "#4cc9e0";
+  g.lineWidth = 1.5 * devicePixelRatio;
+  g.beginPath();
+  let pen = false;
+  const dx = (c.width - 44) / 600;
+  trace.forEach((s, i) => {
+    if (s === null || s < lo || s > hi) { pen = false; return; }
+    const px = 44 + i * dx;
+    pen ? g.lineTo(px, y(s)) : g.moveTo(px, y(s));
+    pen = true;
+  });
+  g.stroke();
+}
+
+function drawSpectrum() {
+  const c = $("spectrum");
+  c.width = c.clientWidth * devicePixelRatio;
+  const g = c.getContext("2d");
+  g.clearRect(0, 0, c.width, c.height);
+  const x = (f) => (Math.log10(f / 30) / Math.log10(16000 / 30)) * c.width;
+  g.font = `${11 * devicePixelRatio}px system-ui`;
+  for (const f of [50, 100, 250, 500, 1000, 4000, 10000]) {
+    g.fillStyle = "#ffffff25";
+    g.fillRect(x(f), 0, 1, c.height);
+    g.fillStyle = "#9aa6b2";
+    g.fillText(f >= 1000 ? `${f / 1000} kHz` : `${f} Hz`, x(f) + 3, 14);
+  }
+  decks.forEach((d, n) => {
+    if (!d.analyser || !d.playing) return;
+    const v = new Float32Array(d.analyser.frequencyBinCount);
+    d.analyser.getFloatFrequencyData(v);
+    g.strokeStyle = n ? "#f2a65a" : "#4cc9e0";
+    g.beginPath();
+    v.forEach((db, i) => {
+      const f = (i * audio.sampleRate) / d.analyser.fftSize;
+      if (f < 30 || f > 16000) return;
+      g.lineTo(x(f), c.height * (1 - (db + 100) / 90));
+    });
+    g.stroke();
+  });
+}
+
+// Tone tool
+let osc;
+function updateTone() {
+  const f = +$("toneF").value;
+  const n = freqToNote(f);
+  $("toneInfo").textContent = `${f} Hz | note ${n.name}${n.octave} (${n.cents >= 0 ? "+" : ""}${n.cents} cents) | wavelength ${(SPEED_OF_SOUND / f).toFixed(2)} m | ${toSwara(f, noteToFreq(+saSelect.value)).name} from your Sa`;
+  if (osc) osc.frequency.value = f;
+  const c = $("toneWave");
+  c.width = c.clientWidth * devicePixelRatio;
+  const g = c.getContext("2d");
+  g.clearRect(0, 0, c.width, c.height);
+  g.strokeStyle = "#4cc9e0";
+  g.beginPath();
+  for (let px = 0; px < c.width; px++) g.lineTo(px, c.height / 2 + (c.height / 2.4) * Math.sin(2 * Math.PI * f * (px / c.width) * 0.01));
+  g.stroke();
+}
+$("toneF").oninput = updateTone;
+$("tonePlay").onclick = () => {
+  ctx();
+  if (osc) {
+    osc.stop();
+    osc = null;
+    $("tonePlay").textContent = "Play tone";
+    return;
+  }
+  osc = audio.createOscillator();
+  const quiet = audio.createGain();
+  quiet.gain.value = 0.15;
+  osc.frequency.value = +$("toneF").value;
+  osc.connect(quiet);
+  quiet.connect(master);
+  osc.start();
+  $("tonePlay").textContent = "Stop tone";
+};
+
+// Views
+function show(view) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
+  document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== view));
+  if (view === "tone") updateTone();
+}
+document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => show(b.dataset.view)));
+
+// Lessons
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+LESSONS.forEach((l, i) => {
+  const li = document.createElement("li");
+  const a = document.createElement("a");
+  a.textContent = l.title;
+  a.tabIndex = 0;
+  a.onclick = () => openLesson(i);
+  a.onkeydown = (e) => { if (e.key === "Enter") openLesson(i); };
+  li.append(a);
+  $("lessonList").append(li);
+});
+function openLesson(i) {
+  const l = LESSONS[i];
+  document.querySelectorAll("#lessonList a").forEach((a, n) => a.classList.toggle("on", n === i));
+  $("lesson").innerHTML = `<h2>${l.title}</h2>${l.text}<p class="try"><b>Try it.</b> ${l.try}</p><h2>The maths</h2><pre>${esc(l.formula)}</pre><h2>The code</h2><pre>${esc(l.code)}</pre>${i + 1 < LESSONS.length ? '<button id="nextLesson">Next lesson</button>' : ""}`;
+  if ($("nextLesson")) $("nextLesson").onclick = () => openLesson(i + 1);
+  if (["tone", "sargam", "spectrum", "library", "set", "lab"].includes(l.action)) show(l.action);
+  $("lessons").scrollTop = $("lesson").offsetTop - 60;
+}
+openLesson(0);
+
+// Playlist
+let playlist = [];
+function renderPlaylist() {
+  const ul = $("playlist");
+  ul.innerHTML = "";
+  playlist.forEach((t) => {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.textContent = t.title;
+    const row = document.createElement("span");
+    row.className = "row";
+    decks.forEach((d, n) => {
+      const b = document.createElement("button");
+      b.textContent = `Load to ${n ? "B" : "A"}`;
+      b.onclick = () => d.el.querySelector("[data-a=load]").click();
+      row.append(b);
+    });
+    li.append(name, row);
+    ul.append(li);
+  });
+}
+$("playlistAdd").onclick = () => { playlist.push(...parsePlaylist($("playlistText").value)); $("playlistText").value = ""; renderPlaylist(); };
+$("playlistFile").onchange = async (e) => { playlist.push(...parsePlaylist(await e.target.files[0].text())); renderPlaylist(); };
+const download = (blob, name) => saveFile(blob, name);   // platform.js: download on desktop, Documents + share on Android
+$("exportM3U").onclick = () => download(new Blob([toM3U(playlist)], { type: "audio/x-mpegurl" }), "playlist.m3u");
+
+// Projects hold settings and names, so no copyrighted audio is copied into them.
+$("save").onclick = () => {
+  const project = { format: "mix-and-learn-project", version: 1, crossfader: +$("xfade").value, sa: +saSelect.value, playlist,
+    decks: decks.map((d) => ({ file: d.file, rate: d.rate, bpm: d.bpm, firstBeat: d.firstBeat, position: d.position(), cues: d.cues,
+      knobs: Object.fromEntries([...d.el.querySelectorAll("[data-k]")].map((s) => [s.dataset.k, +s.value])) })) };
+  download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), "mix_project.json");
+};
+$("loadProject").onclick = () => $("projectFile").click();
+$("projectFile").onchange = async (e) => {
+  const p = JSON.parse(await e.target.files[0].text());
+  ctx();
+  $("xfade").value = p.crossfader;
+  setFade(p.crossfader);
+  saSelect.value = p.sa;
+  playlist = p.playlist || [];
+  renderPlaylist();
+  p.decks.forEach((s, i) => {
+    const d = decks[i];
+    Object.entries(s.knobs).forEach(([k, v]) => { d.el.querySelector(`[data-k=${k}]`).value = v; d.set(k, v); });
+    d.cues = s.cues;
+    d.offset = s.position || 0;
+    d.title.textContent = s.file ? `${d.name}: press Load and choose ${s.file}` : `${d.name}: no track`;
+  });
+};
+
+// Recording what you hear, in the browser's standard WebM audio format
+$("record").onclick = () => {
+  ctx();
+  if (recorder) {
+    recorder.stop();
+    recorder = null;
+    $("record").textContent = "Record mix";
+    return;
+  }
+  const dest = audio.createMediaStreamDestination();
+  master.connect(dest);
+  const chunks = [];
+  recorder = new MediaRecorder(dest.stream);
+  recorder.ondataavailable = (e) => chunks.push(e.data);
+  recorder.onstop = () => { master.disconnect(dest); download(new Blob(chunks, { type: "audio/webm" }), "my_mix.webm"); };
+  recorder.start();
+  $("record").textContent = "Stop and save";
+};
+
+$("help").onclick = () => $("keys").showModal();
+addEventListener("keydown", (e) => {
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) && e.target.type !== "range") return;
+  const follow = decks[+$("followDeck").value];
+  if (e.code === "Space") { e.preventDefault(); decks[0].toggle(); }
+  else if (e.key === "Enter" && e.target.tagName !== "BUTTON" && e.target.tagName !== "A") decks[1].toggle();
+  else if (e.key === "s") sync();
+  else if (e.key === "c") follow.addCue();
+  else if (e.key >= "1" && e.key <= "4" && follow.cues[+e.key - 1] !== undefined) follow.seek(follow.cues[+e.key - 1]);
+  else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    e.preventDefault();
+    const x = $("xfade");
+    x.value = +x.value + (e.key === "ArrowLeft" ? -0.02 : 0.02);
+    ctx();
+    setFade(+x.value);
+  }
+});
+
+function frame() {
+  decks.forEach((d) => d.draw());
+  if (!document.querySelector('[data-panel=sargam]').hidden) drawSargam();
+  if (!document.querySelector('[data-panel=spectrum]').hidden) drawSpectrum();
+  requestAnimationFrame(frame);
+}
+updateTone();
+initStudio({ ctx, decks, download, get master() { ctx(); return master; } });
+initHelp();
+$("tourBtn").onclick = () => tour(0);
+$("version").textContent = `v${APP_VERSION}`;
+show("library");
+firstRun();
+frame();

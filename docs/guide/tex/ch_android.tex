@@ -1,0 +1,61 @@
+\chapter{The Android app, from nothing}\label{ch:android}
+
+One guide is enough for both versions, because there is one app: Android shows the same \texttt{web/} folder inside a native shell. This chapter explains the ideas, then every step from a fresh computer to the app on your phone.
+
+\section{The ideas}
+\begin{description}
+\item[APK] An Android Package: a zip file holding an app's code, resources and a manifest describing it. Phones install APKs.
+\item[Android SDK] The Software Development Kit: tools that build APKs and talk to phones. It comes with Android Studio.
+\item[Gradle] The build tool Android projects use: it compiles, packs and signs the APK. \texttt{gradlew} is a small script that downloads the right Gradle version by itself.
+\item[WebView] A browser engine inside an app. Our app's screens are web pages shown in a WebView.
+\item[Capacitor] An open-source bridge (by Ionic) that creates the Android project around a web folder, copies the web files into it, and gives JavaScript access to phone features through \emph{plugins}, here Filesystem (to save the rendered mix) and Share (to send it to another app).
+\item[Signing] Every APK is signed with a key. Debug builds use an automatic debug key; apps for others need your own release key, kept safe, because updates must be signed with the same key.
+\end{description}
+
+\section{What is already done in this repository}
+\begin{lstlisting}[language=bash]
+npm install                 # Capacitor and its plugins, listed in package.json
+npx cap add android         # created the android/ folder (done once, committed)
+npx cap sync android        # copies web/ into the Android project; run after every change
+\end{lstlisting}
+The file \texttt{capacitor.config.json} names the app (\emph{Mix and Learn}), the folder of web files (\texttt{web}), and the app's unique id, a reversed web address:
+\begin{lstlisting}
+io.github.ahmadammar.mixandlearn
+\end{lstlisting}
+
+\section{Your steps: from a fresh computer to the phone}
+\begin{enumerate}
+\item \textbf{Install Android Studio} from developer.android.com/studio. Its first-run wizard installs the Android SDK, platform tools and a Java runtime for Gradle (Android's build tools need Java 17 or 21; Android Studio bundles one, so a newer Java elsewhere on your computer does not matter).
+\item \textbf{Install Node.js} (nodejs.org, the LTS version), if it is not installed.
+\item In the \texttt{djmixer} folder run \texttt{npm install}, then \texttt{npx cap sync android}.
+\item \textbf{Open the project}: \texttt{npx cap open android} opens \texttt{android/} in Android Studio. Wait for \emph{Gradle sync} to finish (the first time it downloads a few hundred megabytes).
+\item \textbf{Prepare the phone} (Samsung and most Android phones): Settings $\to$ About phone $\to$ Software information $\to$ tap \emph{Build number} seven times to enable Developer options; then Settings $\to$ Developer options $\to$ turn on \emph{USB debugging}. Connect the phone by USB and accept the prompt on its screen.
+\item \textbf{Run}: in Android Studio choose your phone in the device list and press the green Run button. The app installs and opens.
+\item \textbf{Or build an APK file}: Build $\to$ Build App Bundle(s) / APK(s) $\to$ Build APK(s), or in a terminal:
+\begin{lstlisting}[language=bash]
+cd android
+gradlew assembleDebug
+# the file: android/app/build/outputs/apk/debug/app-debug.apk
+\end{lstlisting}
+Copy the APK to the phone and open it; allow installation from this source when asked.
+\item \textbf{A release APK} for others: Build $\to$ Generate Signed Bundle / APK, create a keystore (keep it and its password safe and out of git), and choose \emph{release}.
+\end{enumerate}
+
+\section{Keeping desktop and phone in step}
+Change files only in \texttt{web/}; test on the desktop with \texttt{python dev/serve.py}; then \texttt{npx cap sync android} and run again on the phone. The \texttt{android/} folder holds only the shell. The one place where code differs by platform is \texttt{web/platform.js}: in a browser a rendered mix is downloaded; on the phone it is written to Documents/MixAndLearn and offered to the share sheet.
+
+\section{Designing for touch}
+\begin{itemize}
+\item \textbf{Targets}: on touch screens every button and slider is at least 44 pixels tall, the size of a fingertip (the \texttt{pointer: coarse} rules in \texttt{style.css}).
+\item \textbf{No hover}: explanations open on press-and-hold (half a second) instead.
+\item \textbf{Narrow screens}: below 700 pixels the layout becomes one column, the tabs scroll sideways, and the EQ knobs sit three to a row (Figure~\ref{fig:phone}).
+\item \textbf{Battery and memory}: analysis runs in a background worker at about 11\,kHz; a phone handles a few tracks comfortably, but rendering a long set takes longer than on a computer.
+\end{itemize}
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.32\linewidth]{phone.png}
+\caption{The same app at a phone's width (390 pixels), in the desktop browser's phone view.}\label{fig:phone}
+\end{figure}
+
+\section{Do I need a second guide?}
+No. Android development often means learning Kotlin or Java and Android's own layout system; here the app is a web app, so the only Android-specific knowledge is in this chapter: install the tools, sync, run, sign. If a future version needs features a WebView cannot give (for example, low-latency audio for live scratching), that would be the point to add native code, and a separate chapter.

@@ -1,0 +1,19 @@
+name = "mix_and_learn"
+title = "Mix and Learn"
+subtitle = "Music, DJ mixing and the app that teaches them: from a single note to a rendered set, on desktop and Android"
+author = "Ahmad Ammar"
+layouts = ["manual"]
+source = "tex"
+chapters = ["ch_start", "ch_music", "ch_science", "ch_mixing", "ch_sets", "ch_code", "ch_android"]
+figures = "fig"
+[web]
+site_name = "Mix and Learn"
+intro = "A guide to the Mix and Learn app: what a note, a beat, a scale and a key are, how a computer measures them in real songs, how DJs in different scenes mix, how to build, render and reproduce a set, and how the same code becomes an Android app."
+[web.slugs]
+ch_start = "start"
+ch_music = "music"
+ch_science = "measuring"
+ch_mixing = "mixing"
+ch_sets = "sets"
+ch_code = "code"
+ch_android = "android"

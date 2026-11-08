@@ -1,0 +1,6 @@
+{
+  "appId": "io.github.ahmadammar.mixandlearn",
+  "appName": "Mix and Learn",
+  "webDir": "web",
+  "android": { "allowMixedContent": false }
+}

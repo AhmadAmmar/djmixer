@@ -1,0 +1,37 @@
+\chapter{How the app measures a track}\label{ch:science}
+
+A track arrives as a list of numbers: 44,100 samples per second per channel, each the position of the speaker cone. Everything the Library shows (Figure~\ref{fig:library}) is computed from those numbers by the functions in \texttt{web/dsp.js}, with no outside library. The app first averages the channels to one and keeps every fourth sample, about 11,000 per second, which keeps all frequencies up to about 5.5\,kHz and makes analysis four times faster.
+
+\begin{figure}[H]\centering
+\includegraphics[width=\linewidth]{library.png}
+\caption{The Library with four tracks. Each card shows tempo, key, length, loudness, brightness, intro and outro, the energy over time and the notes used.}\label{fig:library}
+\end{figure}
+
+\section{Seeing frequencies: the Fourier transform}
+A short slice of sound is a mixture of frequencies. The \textbf{Fourier transform} says how much of each it contains:
+\[ X_k = \sum_{n=0}^{N-1} x_n\, e^{-2\pi i k n/N}, \qquad f_k = k\,\frac{f_s}{N}. \]
+The app uses the fast algorithm (FFT) on slices of 1,024 to 8,192 samples, each first multiplied by a smooth \emph{Hann window} so the slice's edges do not create false frequencies.
+
+\section{Tempo}
+\begin{enumerate}
+\item \textbf{Onsets.} For each 23\,ms frame, take the spectrum and add up every \emph{increase} since the previous frame. Drums and new notes make sharp rises; this is the onset strength.
+\item \textbf{Repetition.} Music repeats, so the onset curve matches itself one beat later. The \textbf{autocorrelation} $R(L) = \sum_i e_i\, e_{i+L}$ is large when $L$ is the beat gap. A gentle preference for gaps near 120\,BPM chooses between a tempo and its half or double.
+\item \textbf{Between frames.} At 43 frames a second, one frame near 130\,BPM is 7\,BPM, too coarse. So the curve is read between frames by straight-line interpolation, and compared with itself four beats later, where a small error has grown fourfold. On synthetic tracks of known tempo the result is within 0.4\,BPM (tested in \texttt{web/test\_dsp.mjs}).
+\item \textbf{Phase.} The first beat is the offset at which onsets, summed every beat, are strongest.
+\end{enumerate}
+
+\section{Key}
+The \textbf{chroma} vector adds the energy of every frequency to its note name (C, C\#, \dots, B), whatever the octave. It is then compared, by correlation, with the Krumhansl--Kessler profiles (how strongly each note belongs to a key, measured in listening experiments) rotated to each of the 24 keys. The best match is the key; the correlation is its confidence.
+
+\section{Loudness and brightness}
+\textbf{RMS} level is $\sqrt{\tfrac{1}{N}\sum x_n^2}$, in decibels $20\log_{10}$ of it, relative to full scale (dBFS). The \textbf{peak} is the largest sample. A peak above 0\,dBFS means the decoded file overshoots full scale: heavy mastering plus MP3 decoding. \textbf{Brightness} is the spectral centroid $\sum f_k |X_k| / \sum |X_k|$.
+
+\section{Structure}
+Loudness is computed for every second and averaged over 8-bar phrases from the first beat. Phrases above half the loudest are \emph{full}; the intro is the bars before the first full phrase, the outro the bars after the last. These are where DJs mix.
+
+\section{Your four tracks}
+Measured by \texttt{tools/plan.mjs}, which decodes with ffmpeg and runs the same \texttt{dsp.js}:
+
+\input{generated/set_all_tracks}
+
+\textbf{How good are these numbers?} \emph{Faded} is published at 90\,BPM in E$\flat$ minor; the app finds 89.9\,BPM and F\# major, which is E$\flat$ minor's relative major: the same notes, the classic confusion described in Chapter~\ref{ch:music}. The browser's own MP3 decoder can give slightly different values (a few tenths of a BPM, and loudness a few dB lower because it averages the two channels before measuring), so the guide's tables come from one fixed method. Always check a measured tempo by ear: tap along, and if the app's beat lines drift from the drums, trust the drums.
