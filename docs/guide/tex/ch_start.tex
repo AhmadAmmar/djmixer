@@ -36,7 +36,15 @@ The first time the app opens, a short tour points at each part in turn (Figure~\
 \item \textbf{Bass} (below 250\,Hz), \textbf{Mids} (around 1\,kHz) and \textbf{Treble} (above 4\,kHz), default 0\,dB each, from $-30$ to $+6$\,dB: the three equaliser bands. Bass is kick and bassline, mids are voices and melody, treble is hi-hats and the shimmer of strings.
 \item \textbf{Play}: the whole track, vocals only or music only (approximate, see Chapter~\ref{ch:mixing}).
 \end{itemize}
-Between the decks: the crossfader, \emph{Sync B to A}, \emph{Swap A $\leftrightarrows$ B} (exchanges tracks, positions and settings), \emph{A $\to$ B} and \emph{B $\to$ A} (put the same track on the other deck), and \emph{Reset both decks}. Load a deck with its \emph{Load} button, by dropping an audio file from a folder onto it, or by dragging a track's card from the Library. \emph{Hide lessons} (top left) gives the decks the whole width.
+Between the decks: the crossfader, \emph{Sync B to A}, \emph{Swap A $\leftrightarrows$ B} (exchanges tracks, positions and settings), \emph{A $\to$ B} and \emph{B $\to$ A} (put the same track on the other deck), and \emph{Reset both decks}. Load a deck with its \emph{Load} button, by dropping an audio file from a folder onto it, or by dragging a track's card from the Library.
+
+\section{One library, remembered}
+Every track, however it arrives (the Library button, a drop on a deck, or a drop on the Library), becomes one record in the Library, measured once. The decks, the Library and the Set builder all point at those same records: a track dropped on deck A appears in the Library marked \emph{on deck A}, and \emph{Use the deck tracks} in the Set builder turns the two deck tracks into a set. The records, with the original file bytes and the measurements, are kept in the browser's own database (IndexedDB) on this device, so they survive reloads and app updates, and the decks reload the tracks they last held. \emph{Forget} removes a track. The memory belongs to the address: clearing the browser's data for it, or opening the app at another address or port, starts empty.
+
+\section{Both decks together}
+Below the decks, a strip shows both decks' beats on one time line, with now as the centre line: tall marks are beat one of each bar. When A's and B's marks sit on top of each other the beats are in step; the text gives the gap in milliseconds, which deck is ahead, how fast they drift apart, and each deck's volume. \emph{Play both} starts the decks on the same tick of the audio clock.
+
+\emph{Advise the mix} (it also runs whenever a deck changes) explains how to mix A into B: where to leave A and why, what speed, start point and EQ B needs and why, and the style for the two together, with its rule. \emph{Apply to decks} sets those values; \emph{Play the transition} performs it, with every move timed on the audio clock. Under it, the best next tracks from the Library are listed with their reasons, ready to load on deck A, because DJs alternate decks. \emph{Hide lessons} (top left) gives the decks the whole width.
 \item[Library] Add audio files; each is measured and drawn. A table shows how well every pair would mix.
 \item[Set builder] Choose tracks, a transition style and an order, then render.
 \item[Sound lab] Hear the ideas: a note, an octave, a fifth, chords, timbre, beats and bars, half time.

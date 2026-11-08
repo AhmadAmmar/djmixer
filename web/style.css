@@ -68,3 +68,8 @@ button[data-help],.tabs [data-help]{text-decoration:none;border-style:dashed}
 #setOrder .transition{list-style:none}
 body.nolessons main{grid-template-columns:minmax(0,1fr)}body.nolessons #lessons{display:none}
 @media (pointer:coarse){.knob .reset{min-height:32px;padding:0 10px}}
+
+.together{grid-column:1/-1;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.together canvas{width:100%;height:90px;display:block;background:var(--well);border-radius:4px;margin-top:6px}
+.advice h4{margin:8px 0 4px;font-size:14px}.advice p{margin:4px 0;font-size:13.5px}.ca{color:var(--a)}.cb{color:var(--b)}
+.advice .next li{margin:4px 0}.badge{font-size:11px;background:var(--on);border:1px solid var(--accent);border-radius:10px;padding:0 6px;margin-left:4px}

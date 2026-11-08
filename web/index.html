@@ -34,11 +34,18 @@
       <div class="info" id="match">Load two tracks to compare them.</div>
       <label class="fader" data-help="crossfader">A <input id="xfade" type="range" min="0" max="1" step="0.005" value="0.5"> B</label>
       <button id="sync" data-help="sync">Sync B to A</button>
+      <button id="playBoth" data-help="playBoth">Play both</button>
+      <button id="advise" data-help="advise">Advise the mix</button>
       <button id="swapDecks" data-help="swap">Swap A &#8644; B</button>
       <div class="row center"><button id="copyAB" data-help="copy">A &#8594; B</button><button id="copyBA" data-help="copy">B &#8594; A</button></div>
       <button id="resetBoth" data-help="resetBoth">Reset both decks</button>
     </div>
     <div class="deck" id="deckB"></div>
+    <div class="together">
+      <div class="row"><b data-help="together">Both decks together</b> <span id="togetherInfo" class="small muted"></span></div>
+      <canvas id="together" height="90" aria-label="Beats of both decks around their playheads"></canvas>
+      <div id="advice" class="advice"></div>
+    </div>
     <nav class="tabs">
       <button data-view="library" class="on">Library</button>
       <button data-view="set">Set builder</button>
@@ -52,7 +59,9 @@
       <div data-panel="library" id="libraryDrop">
         <div class="row">
           <label class="filebtn">Add audio files <input type="file" id="libFiles" accept="audio/*" multiple hidden></label>
-          <span class="muted small">or drop files here. They stay on this device: nothing is uploaded.</span>
+          <span class="muted small">or drop files here, or on a deck. They stay on this device and are remembered for next time.</span>
+        </div>
+        <div class="row"><span id="storeInfo" class="muted small"></span>
         </div>
         <ul id="library"></ul>
         <h2 data-help="matrix">Which pairs mix well</h2>
@@ -61,6 +70,7 @@
       <div data-panel="set" hidden>
         <div class="row">
           <label data-help="preset">Transition style <select id="presetChoice"></select></label>
+          <button id="setFromDecks" data-help="setFromDecks">Use the deck tracks</button>
           <button id="autoOrder" data-help="autoOrder">Auto order</button>
           <button id="renderMp3" data-help="render">Render MP3</button>
           <button id="renderWav" data-help="render">Render WAV</button>

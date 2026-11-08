@@ -2,8 +2,9 @@
 import { NOTES, downmix, noteToFreq } from "./dsp.js";
 import { PRESETS, keyFit, orderSet, planTransition, setFile, shiftedKey, semitones, tempoMatch } from "./mix.js";
 import { mp3Blob, renderSet as renderMix, sha256, wavBlob } from "./render.js";
+import { allTracks, forgetTrack, saveTrack, usage } from "./store.js";
 
-export const APP_VERSION = "0.4.0";
+export const APP_VERSION = "0.5.0";
 const $ = (id) => document.getElementById(id);
 let env;                                   // { ctx, decks, download, master }
 export const library = [];                 // { id, file, buffer, sha256, duration, ...analysis }
@@ -16,14 +17,21 @@ const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padSt
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 // ---------------------------------------------------------------- library
+// Every track the app knows lives here, whether it came from the Library button, a drop on a deck, or a previous visit.
+// The decks, the Library and the Set builder all point at these same records, so they cannot disagree.
+const MEASURES = ["bpm", "firstBeat", "key", "camelot", "keyScore", "rmsDb", "peakDb", "crestDb", "brightnessHz", "introBars", "outroBars", "chroma", "sections", "energy"];
+
 export async function addFiles(files) {
   const audio = env.ctx();
+  const added = [];
   for (const file of files) {
-    const item = { id: crypto.randomUUID(), file: file.name, status: "reading" };
+    const bytes = await file.arrayBuffer();
+    const sha = await sha256(bytes);
+    const known = library.find((t) => t.sha256 === sha);          // the same recording, already in the library
+    if (known) { added.push(known); continue; }
+    const item = { id: crypto.randomUUID(), file: file.name, sha256: sha, status: "reading" };
     library.push(item); renderLibrary();
     try {
-      const bytes = await file.arrayBuffer();
-      item.sha256 = await sha256(bytes);
       item.buffer = await audio.decodeAudioData(bytes.slice(0));
       item.duration = item.buffer.duration;
       item.status = "measuring tempo, key, loudness and sections";
@@ -31,11 +39,62 @@ export async function addFiles(files) {
       const chans = Array.from({ length: item.buffer.numberOfChannels }, (_, i) => item.buffer.getChannelData(i));
       const f = Math.round(item.buffer.sampleRate / 11025);
       Object.assign(item, await analyse(downmix(chans, f), item.buffer.sampleRate / f), { status: "ready" });
+      const record = { id: item.id, file: item.file, sha256: sha, bytes, duration: item.duration, added: new Date().toISOString() };
+      MEASURES.forEach((k) => (record[k] = item[k]));
+      await saveTrack(record).catch((err) => (item.status = `ready (could not be remembered: ${err.message})`));
     } catch (err) {
       item.status = `could not read this file (${err.message})`;
     }
+    added.push(item);
     renderLibrary(); renderSet();
+    env.onChange?.();                                 // let the decks' advisor see the new track
   }
+  return added;
+}
+
+// On start: bring back every remembered track. The measurements are stored, so only decoding is repeated.
+export async function restoreLibrary() {
+  let records = [];
+  try { records = await allTracks(); } catch { return; }
+  const audio = env.ctx();
+  for (const r of records.sort((p, q) => (p.added < q.added ? -1 : 1))) {
+    if (library.some((t) => t.sha256 === r.sha256)) continue;
+    const item = { ...r, bytes: undefined, status: "reading (remembered)" };
+    library.push(item); renderLibrary();
+    try {
+      item.buffer = await audio.decodeAudioData(r.bytes.slice(0));
+      item.status = "ready";
+    } catch (err) { item.status = `could not be decoded again (${err.message})`; }
+    renderLibrary();
+  }
+  renderSet();
+  env.onChange?.();
+  const u = await usage();
+  if (u && $("storeInfo")) $("storeInfo").textContent = `${library.length} tracks remembered on this device (${u.usedMB.toFixed(0)} MB of ${u.quotaMB.toFixed(0)} MB allowed).`;
+}
+
+async function forget(t) {
+  await forgetTrack(t.id).catch(() => {});
+  library.splice(library.indexOf(t), 1);
+  renderLibrary(); renderSet();
+  env.onChange?.();
+}
+
+// What to play next: score every other ready track as a continuation of `current`, best first, with reasons.
+export function suggestNext(current, exclude = []) {
+  return library.filter((t) => t.status === "ready" && t !== current && !exclude.includes(t)).map((t) => {
+    const m = tempoMatch(current.bpm, t.bpm);
+    const k = keyFit(shiftedKey(t.camelot, semitones(m.rate)), current.camelot);
+    const lift = t.rmsDb >= current.rmsDb;
+    const score = (1 - Math.min(m.change / 0.1, 1)) + k.score + (lift ? 0.3 : 0);
+    const why = [
+      m.change <= 0.04 ? `tempo ${t.bpm.toFixed(0)} BPM is within ${(100 * m.change).toFixed(1)}%${m.multiple !== 1 ? (m.multiple === 2 ? " at double time" : " at half time") : ""}, so the beats can lock`
+        : m.change <= 0.08 ? `tempo needs a ${(100 * m.change).toFixed(1)}% change: audible on vocals, fine on drums` : `tempo is ${(100 * m.change).toFixed(0)}% away, so it needs a cut or echo-out`,
+      `key ${t.camelot}: ${k.why}`,
+      lift ? "it is as loud or louder, so energy keeps rising" : "it is quieter, a chance to let the energy breathe",
+    ];
+    return { track: t, score, why };
+  }).sort((p, q) => q.score - p.score);
 }
 
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -74,7 +133,8 @@ export function renderLibrary() {
       li.title = "Drag onto deck A or B";
       li.ondragstart = (e) => e.dataTransfer.setData("text/mal-track", t.id);
     }
-    li.innerHTML = `<b>${esc(t.file)}</b><div class="muted">${esc(t.status)}</div>`;
+    const onDecks = env.decks.map((d, n) => (d.itemId === t.id ? `on deck ${n ? "B" : "A"}` : null)).filter(Boolean);
+    li.innerHTML = `<b>${esc(t.file)}</b> ${onDecks.map((s) => `<span class="badge">${s}</span>`).join(" ")}<div class="muted">${esc(t.status)}</div>`;
     if (t.status === "ready") {
       li.innerHTML += `<div class="facts">
         <span data-help="bpm">${t.bpm.toFixed(1)} BPM</span><span data-help="key">${esc(t.key)} (${t.camelot})</span>
@@ -87,8 +147,11 @@ export function renderLibrary() {
       const btns = document.createElement("div"); btns.className = "row";
       env.decks.forEach((d, n) => {
         const b = document.createElement("button"); b.textContent = `Load to ${n ? "B" : "A"}`;
-        b.onclick = () => d.setBuffer(t.buffer, t.file); btns.append(b);
+        b.onclick = () => d.setItem(t); btns.append(b);
       });
+      const del = document.createElement("button"); del.textContent = "Forget";
+      del.title = "Remove from the library and from this device's memory";
+      del.onclick = () => forget(t); btns.append(del);
       const pick = document.createElement("label");
       pick.innerHTML = `<input type="checkbox" ${t.inSet ? "checked" : ""}> in the set`;
       pick.querySelector("input").onchange = (e) => { t.inSet = e.target.checked; renderSet(); };
@@ -234,6 +297,11 @@ export function init(e) {
   Object.entries(PRESETS).forEach(([id, p]) => sel.add(new Option(p.name, id)));
   sel.onchange = renderSet;
   $("autoOrder").onclick = () => { order = orderSet(order); renderSet(); };
+  $("setFromDecks").onclick = () => {                 // the two deck tracks become the set, A first
+    const items = env.decks.map((d) => library.find((t) => t.id === d.itemId)).filter(Boolean);
+    library.forEach((t) => (t.inSet = items.includes(t)));
+    order = items; renderLibrary(); renderSet();
+  };
   $("renderWav").onclick = () => render("wav");
   $("renderMp3").onclick = () => render("mp3");
   $("openSet").onclick = () => $("setFile").click();

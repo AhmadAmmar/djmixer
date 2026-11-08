@@ -7,6 +7,9 @@ and, wrapped by Capacitor, as an Android app from the same code.
   for every control (hover, or press and hold on touch), and a first-run tour.
 - **Measures** your own files: tempo, key and Camelot code, loudness, peaks, brightness, intro and outro, energy over
   time, notes used; and how well every pair would mix.
+- **Remembers** every track you add (on this device), and keeps the decks, Library and Set builder in step; a
+  mix advisor between the decks explains how to mix A into B, plays the transition, and suggests what comes next,
+  with a view of both decks' beats together.
 - **Mixes**: plans a set with transition styles from different scenes (house bass swap, pop crossfade, Bollywood cut
   on the sam, acid filter sweep, echo out), explains each decision, renders it as MP3 or WAV with loudness matching,
   and saves a set file with file fingerprints so the same mix can be made again.

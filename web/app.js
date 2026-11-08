@@ -2,7 +2,8 @@ import { NOTES, SPEED_OF_SOUND, SWARAS, downmix, estimateKey, estimateTempo, fre
 import { LESSONS as BASE_LESSONS } from "./lessons.js";
 import { MORE_LESSONS } from "./lessons_more.js";
 const LESSONS = [...BASE_LESSONS.slice(0, -1), ...MORE_LESSONS, BASE_LESSONS[BASE_LESSONS.length - 1]];
-import { APP_VERSION, init as initStudio, library, renderLibrary } from "./studio.js";
+import { APP_VERSION, addFiles, init as initStudio, library, renderLibrary, restoreLibrary, suggestNext } from "./studio.js";
+import { PRESETS, planTransition } from "./mix.js";
 import { firstRun, initHelp, tour } from "./help.js";
 import { saveFile } from "./platform.js";
 
@@ -78,7 +79,7 @@ class Deck {
       el.classList.remove("dropping");
       const id = e.dataTransfer.getData("text/mal-track");
       const item = id && library.find((t) => t.id === id);
-      if (item?.buffer) this.setBuffer(item.buffer, item.file);
+      if (item?.buffer) this.setItem(item);
       else if (e.dataTransfer.files[0]) this.loadFile(e.dataTransfer.files[0]);
     };
   }
@@ -158,13 +159,14 @@ class Deck {
 
   // Everything that describes what this deck is playing, so it can be swapped with or copied to the other deck.
   state() {
-    return { buffer: this.buffer, file: this.file, bpm: this.bpm, firstBeat: this.firstBeat, key: this.key, cues: [...this.cues], peaks: this.peaks,
+    return { itemId: this.itemId, buffer: this.buffer, file: this.file, bpm: this.bpm, firstBeat: this.firstBeat, key: this.key, cues: [...this.cues], peaks: this.peaks,
       position: this.buffer ? this.position() : 0, playing: this.playing, stem: this.stem,
       knobs: Object.fromEntries(KNOBS.map((k) => [k.id, +this.el.querySelector(`[data-k=${k.id}]`).value])) };
   }
 
   restore(st) {
     this.stop();
+    this.itemId = st.itemId;
     Object.assign(this, { buffer: st.buffer, file: st.file, bpm: st.bpm, firstBeat: st.firstBeat, key: st.key, cues: st.cues, peaks: st.peaks, offset: st.position, zoom: 1 });
     this.title.textContent = st.buffer ? `${this.name}: ${st.file}` : `${this.name}: no track`;
     KNOBS.forEach((k) => { this.el.querySelector(`[data-k=${k.id}]`).value = st.knobs[k.id]; this.set(k.id, st.knobs[k.id]); });
@@ -187,18 +189,20 @@ class Deck {
 
   position() {
     if (!this.playing) return this.offset;
-    return Math.min(this.buffer.duration, this.offset + (audio.currentTime - this.startedAt) * this.rate);
+    return Math.min(this.buffer.duration, this.offset + Math.max(0, audio.currentTime - this.startedAt) * this.rate);
   }
 
-  start() {
+  // `when` lets two decks start on exactly the same tick of the audio clock (Play both, transitions).
+  start(when = 0) {
     ctx();
     if (!this.buffer || this.playing) return;
     this.source = audio.createBufferSource();
     this.source.buffer = this.buffer;
     this.source.playbackRate.value = this.rate;
     this.source.connect(this.input);
-    this.source.start(0, this.offset);
-    this.startedAt = audio.currentTime;
+    const at = Math.max(when, audio.currentTime);
+    this.source.start(at, this.offset);
+    this.startedAt = at;
     this.playing = true;
     this.el.querySelector("[data-a=play]").textContent = "Pause";
   }
@@ -224,17 +228,24 @@ class Deck {
     if (this.buffer && this.cues.length < 4) this.cues.push(this.position());
   }
 
+  // A file dropped or chosen here goes through the Library first, so it is measured once, remembered, and shared.
   async loadFile(file) {
     ctx();
-    this.title.textContent = `${this.name}: reading ${file.name}`;
-    try {
-      this.setBuffer(await audio.decodeAudioData(await file.arrayBuffer()), file.name);
-    } catch {
-      this.title.textContent = `${this.name}: this file could not be read`;
-    }
+    this.title.textContent = `${this.name}: reading and measuring ${file.name}`;
+    const [item] = await addFiles([file]);
+    if (item?.buffer) this.setItem(item);
+    else this.title.textContent = `${this.name}: this file could not be read`;
   }
 
-  setBuffer(buffer, name, keep = false) {
+  setItem(item) {
+    this.itemId = item.id;
+    this.setBuffer(item.buffer, item.file, false, item);
+    try { localStorage.setItem("mal-decks", JSON.stringify(decks.map((d) => d.itemId || null))); } catch {}
+    renderLibrary();
+    advise();
+  }
+
+  setBuffer(buffer, name, keep = false, item = null) {
     this.stop();
     Object.assign(this, { buffer, file: name, offset: 0, zoom: 1 });
     if (!keep) this.cues = [];
@@ -251,6 +262,12 @@ class Deck {
     });
     const top = Math.max(...this.peaks, 1e-9);
     this.peaks = this.peaks.map((v) => (0.95 * v) / top);   // scale to the loudest moment, so loud masters do not fill the box
+    if (item?.bpm) {                                   // measured already, in the Library
+      Object.assign(this, { bpm: item.bpm, firstBeat: item.firstBeat, key: { name: item.key, camelot: item.camelot } });
+      this.stats.textContent = "";
+      compare();
+      return;
+    }
     setTimeout(() => {
       const f = Math.round(buffer.sampleRate / 11025);
       const x = downmix(chans, f);
@@ -339,6 +356,89 @@ $("sync").onclick = sync;
 $("swapDecks").onclick = () => { const a = decks[0].state(), b = decks[1].state(); decks[0].restore(b); decks[1].restore(a); };
 $("copyAB").onclick = () => decks[1].restore({ ...decks[0].state(), playing: false });
 $("copyBA").onclick = () => decks[0].restore({ ...decks[1].state(), playing: false });
+// Play both: start the two decks on the same tick of the audio clock, so they begin together to the sample.
+$("playBoth").onclick = () => {
+  ctx();
+  if (decks.some((d) => d.playing)) { decks.forEach((d) => d.stop()); $("playBoth").textContent = "Play both"; return; }
+  const when = audio.currentTime + 0.1;
+  decks.forEach((d) => d.start(when));
+  $("playBoth").textContent = "Pause both";
+};
+
+// ---------------------------------------------------------------- the mix advisor
+const itemOf = (d) => library.find((t) => t.id === d.itemId);
+let lastPlan = null;
+function advise() {
+  const box = $("advice");
+  const [A, B] = decks.map(itemOf);
+  if (!A || !B || A.status !== "ready" || B.status !== "ready") {
+    box.innerHTML = '<p class="muted small">Load a track on each deck and the advisor explains how to mix A into B.</p>';
+    lastPlan = null; return;
+  }
+  const p = (lastPlan = planTransition({ ...A, duration: A.duration }, { ...B, duration: B.duration }, "auto"));
+  const bar = 240 / A.bpm, mm = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+  const cut = p.automation[0].bLow !== undefined;
+  const next = suggestNext(B, [A]).slice(0, 3);
+  box.innerHTML = `<h4>How to mix A into B</h4>
+    <p><b class="ca">A (going out)</b>: ${A.bpm.toFixed(1)} BPM, ${A.key} (${A.camelot}), ${A.rmsDb} dB. Leave it at <b>${mm(p.aOutAt)}</b>, the start of its last 8-bar phrase before the outro (${A.outroBars} bar${A.outroBars === 1 ? "" : "s"}), so the change lands where the ear expects one.</p>
+    <p><b class="cb">B (coming in)</b>: ${B.bpm.toFixed(1)} BPM, ${B.key} (${B.camelot}), ${B.rmsDb} dB. ${p.stretchPct !== 0 ? `Play it at <b>x${p.bRate.toFixed(3)}</b> (${p.stretchPct > 0 ? "+" : ""}${p.stretchPct}%)${p.multiple !== 1 ? `, meeting at ${p.multiple === 2 ? "double" : "half"} time` : ""}, which moves its pitch ${p.pitchShift} semitones; its key becomes ${p.bKeyAfter}.` : "Keep its speed: no stretch is needed or wise."} Start it from its first beat (${p.bInAt.toFixed(2)} s)${cut ? " with its bass cut, so the two basslines do not fight" : ""}.</p>
+    <p><b>Together</b>: ${esc2(p.presetName)} over ${p.bars} bar${p.bars === 1 ? "" : "s"} (${(p.bars * bar).toFixed(1)} s): ${esc2(p.why)}. Keys: ${esc2(p.keyFit.why)}.</p>
+    <details><summary>The rule behind this style</summary><p>${esc2(p.rule)}</p></details>
+    <div class="row"><button id="applyPlan" data-help="applyPlan">Apply to decks</button><button id="performPlan" data-help="performPlan">Play the transition</button></div>
+    ${next.length ? `<h4>What could follow B</h4><ol class="next">${next.map((n) => `<li><b>${esc2(n.track.file)}</b> <button data-next="${n.track.id}">Load to A</button><br><span class="small muted">${n.why.map(esc2).join("; ")}.</span></li>`).join("")}</ol><p class="small muted">Load the next track on deck A, the one that just finished: DJs alternate decks.</p>` : ""}`;
+  $("applyPlan").onclick = () => applyPlan(p);
+  $("performPlan").onclick = () => performPlan(p);
+  box.querySelectorAll("[data-next]").forEach((b) => (b.onclick = () => decks[0].setItem(library.find((t) => t.id === b.dataset.next))));
+}
+const esc2 = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+function applyPlan(p) {
+  const [A, B] = decks;
+  B.setRate(p.bRate);
+  B.stop(); B.offset = p.bInAt;
+  A.cues = [p.aOutAt]; B.cues = [p.bInAt];
+  const first = p.automation[0];
+  const lowB = B.el.querySelector("[data-k=low]");
+  lowB.value = first.bLow ?? 0; B.set("low", +lowB.value);
+  $("xfade").value = 0; setFade(0);
+}
+
+// Perform the transition live: A plays from 4 bars before its exit point, B starts exactly at the exit point,
+// and the plan's volume and bass moves are scheduled on the audio clock. Filters and echo are heard only in a render.
+function performPlan(p) {
+  ctx();
+  applyPlan(p);
+  const [A, B] = decks;
+  const barReal = 240 / (A.bpm * A.rate);
+  A.stop(); A.offset = Math.max(0, p.aOutAt - 4 * barReal * A.rate);
+  const now = audio.currentTime + 0.1, when = now + 4 * barReal;
+  A.start(now); B.start(when);
+  [A.fade.gain, B.fade.gain].forEach((g) => g.cancelScheduledValues(0));
+  A.fade.gain.setValueAtTime(1, now); B.fade.gain.setValueAtTime(0, now); B.fade.gain.setValueAtTime(0, when);
+  const lowA = A.bands[0].gain, lowB = B.bands[0].gain;
+  p.automation.forEach((pt) => {
+    const t = when + pt.at * barReal;
+    if (pt.aGain !== undefined) A.fade.gain.linearRampToValueAtTime(pt.aGain, t);
+    if (pt.bGain !== undefined) B.fade.gain.linearRampToValueAtTime(pt.bGain, t);
+    if (pt.aLow !== undefined) lowA.setValueAtTime(pt.aLow, t);
+    if (pt.bLow !== undefined) lowB.setValueAtTime(pt.bLow, t);
+  });
+  const end = when + p.bars * barReal;
+  transition = { now, when, end };
+  // When it is over, stop A and make the sliders show where the scheduled moves left the sound.
+  const last = p.automation[p.automation.length - 1];
+  setTimeout(() => {
+    A.stop();
+    $("xfade").value = 1; setFade(1);
+    const lowB = B.el.querySelector("[data-k=low]"); lowB.value = last.bLow ?? 0; B.set("low", +lowB.value);
+    A.resetKnob("low");
+    transition = null;
+  }, (end - audio.currentTime + 0.3) * 1000);
+}
+let transition = null;
+
+$("advise").onclick = advise;
+
 $("resetBoth").onclick = () => { decks.forEach((d) => d.resetAll()); $("xfade").value = 0.5; setFade(0.5); };
 $("toggleLessons").onclick = () => {
   const hide = document.body.classList.toggle("nolessons");
@@ -591,14 +691,55 @@ addEventListener("keydown", (e) => {
   }
 });
 
+// The together view: both decks' beats around their playheads on one time axis, and how far apart they are.
+function drawTogether() {
+  const c = $("together");
+  c.width = c.clientWidth * devicePixelRatio;
+  const g = c.getContext("2d"), W = c.width, H = c.height, span = 4;   // seconds shown either side of now
+  g.clearRect(0, 0, W, H);
+  g.font = `${11 * devicePixelRatio}px system-ui`;
+  const x = (dt) => W / 2 + (dt / span) * (W / 2);
+  decks.forEach((d, n) => {
+    const top = n ? H / 2 + 4 : 4, h = H / 2 - 8, col = cssVar(n ? "--b" : "--a");
+    g.fillStyle = grid(0.06); g.fillRect(0, top, W, h);
+    g.fillStyle = col; g.fillText(`${n ? "B" : "A"} ${d.bpm ? (d.bpm * d.rate).toFixed(1) + " BPM" : ""}${d.playing ? "" : " (paused)"}`, 4, top + 12 * devicePixelRatio);
+    if (!d.buffer || !d.bpm) return;
+    const pos = d.position(), beat = 60 / d.bpm;
+    const k0 = Math.ceil((pos - span * d.rate - d.firstBeat) / beat), k1 = Math.floor((pos + span * d.rate - d.firstBeat) / beat);
+    for (let k = k0; k <= k1; k++) {
+      const dt = (d.firstBeat + k * beat - pos) / d.rate;               // seconds of real time until that beat
+      const down = ((k % 4) + 4) % 4 === 0;
+      g.fillStyle = col; g.globalAlpha = down ? 1 : 0.5;
+      g.fillRect(x(dt) - (down ? 2 : 1), top + (down ? 0 : h * 0.35), down ? 4 : 2, down ? h : h * 0.65);
+    }
+    g.globalAlpha = 1;
+  });
+  g.fillStyle = cssVar("--ink"); g.fillRect(W / 2 - 1, 0, 2, H);
+  const [a, b] = decks;
+  let txt = "Load both decks to compare their beats.";
+  if (a.bpm && b.bpm) {
+    const phase = (d) => { const beat = 60 / d.bpm; return ((((d.position() - d.firstBeat) % beat) + beat) % beat) / beat; };
+    let diff = phase(a) - phase(b);
+    diff -= Math.round(diff);
+    const ms = (diff * 60000) / (a.bpm * a.rate);
+    const drift = Math.abs(a.bpm * a.rate - b.bpm * b.rate);
+    txt = a.playing && b.playing
+      ? `Beats ${Math.abs(ms) < 15 ? "in step" : `${Math.abs(ms).toFixed(0)} ms apart (${ms > 0 ? "A ahead" : "B ahead"})`}; tempos differ by ${drift.toFixed(2)} BPM${drift > 0.1 ? `, so they drift a full beat in ${(60 / drift).toFixed(0)} s` : ""}. Gains: A ${a.fade.gain.value.toFixed(2)}, B ${b.fade.gain.value.toFixed(2)}.`
+      : "Play both decks to see whether their beats line up.";
+    if (transition) txt = `Transition: ${audio.currentTime < transition.when ? `B starts in ${(transition.when - audio.currentTime).toFixed(1)} s` : `${Math.min(100, (100 * (audio.currentTime - transition.when)) / (transition.end - transition.when)).toFixed(0)}% done`}. ` + txt;
+  }
+  $("togetherInfo").textContent = txt;
+}
+
 function frame() {
   decks.forEach((d) => d.draw());
+  drawTogether();
   if (!document.querySelector('[data-panel=sargam]').hidden) drawSargam();
   if (!document.querySelector('[data-panel=spectrum]').hidden) drawSpectrum();
   requestAnimationFrame(frame);
 }
 updateTone();
-initStudio({ ctx, decks, download, get master() { ctx(); return master; } });
+initStudio({ ctx, decks, download, get master() { ctx(); return master; }, onChange: () => advise() });
 initHelp();
 $("tourBtn").onclick = () => tour(0);
 // Theme: Auto follows the system (light or dark); the choice is remembered on this device.
@@ -615,5 +756,12 @@ applyTheme(theme);
 $("themeBtn").onclick = () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % 3]; applyTheme(theme); };
 $("version").textContent = `v${APP_VERSION}`;
 show("library");
+// Bring back remembered tracks, then the tracks that were on the decks last time.
+restoreLibrary().then(() => {
+  let ids = [];
+  try { ids = JSON.parse(localStorage.getItem("mal-decks") || "[]"); } catch {}
+  ids.forEach((id, n) => { const t = library.find((x) => x.id === id && x.buffer); if (t) decks[n].setItem(t); });
+  advise();
+});
 firstRun();
 frame();
