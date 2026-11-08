@@ -53,7 +53,13 @@ function show(el) {
 }
 export function initHelp() {
   let timer;
-  document.addEventListener("mouseover", (e) => { const el = e.target.closest("[data-help]"); if (el) show(el); else tip.hidden = true; });
+  let hoverTimer;
+  document.addEventListener("mouseover", (e) => {
+    clearTimeout(hoverTimer);
+    const el = e.target.closest("[data-help]");
+    if (el) hoverTimer = setTimeout(() => show(el), 600); else tip.hidden = true;
+  });
+  document.addEventListener("mouseout", (e) => { if (e.target.closest("[data-help]")) { clearTimeout(hoverTimer); tip.hidden = true; } });
   document.addEventListener("focusin", (e) => { const el = e.target.closest("[data-help]"); if (el) show(el); });
   document.addEventListener("touchstart", (e) => { const el = e.target.closest("[data-help]"); if (el) timer = setTimeout(() => show(el), 500); }, { passive: true });
   document.addEventListener("touchend", () => clearTimeout(timer));

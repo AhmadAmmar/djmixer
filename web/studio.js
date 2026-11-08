@@ -4,7 +4,7 @@ import { PRESETS, keyFit, orderSet, planTransition, setFile, shiftedKey, semiton
 import { mp3Blob, renderSet as renderMix, sha256, wavBlob } from "./render.js";
 import { allTracks, forgetTrack, saveTrack, usage } from "./store.js";
 
-export const APP_VERSION = "0.5.0";
+export const APP_VERSION = "0.5.1";
 const $ = (id) => document.getElementById(id);
 let env;                                   // { ctx, decks, download, master }
 export const library = [];                 // { id, file, buffer, sha256, duration, ...analysis }
@@ -49,6 +49,7 @@ export async function addFiles(files) {
     renderLibrary(); renderSet();
     env.onChange?.();                                 // let the decks' advisor see the new track
   }
+  storeInfo();
   return added;
 }
 
@@ -69,8 +70,15 @@ export async function restoreLibrary() {
   }
   renderSet();
   env.onChange?.();
+  storeInfo();
+}
+
+// How many tracks are remembered, and how much room they take, kept up to date after every add or forget.
+async function storeInfo() {
+  let n = 0;
+  try { n = (await allTracks()).length; } catch {}
   const u = await usage();
-  if (u && $("storeInfo")) $("storeInfo").textContent = `${library.length} tracks remembered on this device (${u.usedMB.toFixed(0)} MB of ${u.quotaMB.toFixed(0)} MB allowed).`;
+  if ($("storeInfo")) $("storeInfo").textContent = `${n} track${n === 1 ? "" : "s"} remembered on this device` + (u ? ` (${u.usedMB.toFixed(0)} MB of ${u.quotaMB.toFixed(0)} MB allowed).` : ".");
 }
 
 async function forget(t) {
@@ -78,6 +86,7 @@ async function forget(t) {
   library.splice(library.indexOf(t), 1);
   renderLibrary(); renderSet();
   env.onChange?.();
+  storeInfo();
 }
 
 // What to play next: score every other ready track as a continuation of `current`, best first, with reasons.

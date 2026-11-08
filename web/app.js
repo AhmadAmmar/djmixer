@@ -202,6 +202,13 @@ class Deck {
     this.source.connect(this.input);
     const at = Math.max(when, audio.currentTime);
     this.source.start(at, this.offset);
+    const src = this.source;
+    src.onended = () => {                              // reached the end of the track (not a pause): reset the deck
+      if (this.source === src && this.playing && this.position() >= this.buffer.duration - 0.1) {
+        this.playing = false; this.offset = 0;
+        this.el.querySelector("[data-a=play]").textContent = "Play";
+      }
+    };
     this.startedAt = at;
     this.playing = true;
     this.el.querySelector("[data-a=play]").textContent = "Pause";
@@ -357,13 +364,15 @@ $("swapDecks").onclick = () => { const a = decks[0].state(), b = decks[1].state(
 $("copyAB").onclick = () => decks[1].restore({ ...decks[0].state(), playing: false });
 $("copyBA").onclick = () => decks[0].restore({ ...decks[1].state(), playing: false });
 // Play both: start the two decks on the same tick of the audio clock, so they begin together to the sample.
-$("playBoth").onclick = () => {
+function playBoth() {
   ctx();
-  if (decks.some((d) => d.playing)) { decks.forEach((d) => d.stop()); $("playBoth").textContent = "Play both"; return; }
+  if (decks.some((d) => d.playing)) { stopTransition(); decks.forEach((d) => d.stop()); return; }
   const when = audio.currentTime + 0.1;
   decks.forEach((d) => d.start(when));
-  $("playBoth").textContent = "Pause both";
-};
+}
+$("playBoth").onclick = playBoth;
+$("tPlay").onclick = playBoth;
+$("tStop").onclick = () => { stopTransition(); decks.forEach((d) => { d.stop(); }); };
 
 // ---------------------------------------------------------------- the mix advisor
 const itemOf = (d) => library.find((t) => t.id === d.itemId);
@@ -407,6 +416,7 @@ function applyPlan(p) {
 // and the plan's volume and bass moves are scheduled on the audio clock. Filters and echo are heard only in a render.
 function performPlan(p) {
   ctx();
+  if (transition) { stopTransition(); decks.forEach((d) => d.stop()); return; }
   applyPlan(p);
   const [A, B] = decks;
   const barReal = 240 / (A.bpm * A.rate);
@@ -427,7 +437,7 @@ function performPlan(p) {
   transition = { now, when, end };
   // When it is over, stop A and make the sliders show where the scheduled moves left the sound.
   const last = p.automation[p.automation.length - 1];
-  setTimeout(() => {
+  transitionTimer = setTimeout(() => {
     A.stop();
     $("xfade").value = 1; setFade(1);
     const lowB = B.el.querySelector("[data-k=low]"); lowB.value = last.bLow ?? 0; B.set("low", +lowB.value);
@@ -435,7 +445,19 @@ function performPlan(p) {
     transition = null;
   }, (end - audio.currentTime + 0.3) * 1000);
 }
-let transition = null;
+let transition = null, transitionTimer = null;
+
+// Stop a running transition: cancel every scheduled move and put the volumes back where the crossfader says.
+function stopTransition() {
+  if (!transition) return;
+  clearTimeout(transitionTimer);
+  transition = null;
+  decks.forEach((d) => {
+    [d.fade.gain, d.bands[0].gain].forEach((g) => { g.cancelScheduledValues(0); });
+    d.set("low", +d.el.querySelector("[data-k=low]").value);
+  });
+  setFade(+$("xfade").value);
+}
 
 $("advise").onclick = advise;
 
@@ -733,6 +755,10 @@ function drawTogether() {
 
 function frame() {
   decks.forEach((d) => d.draw());
+  const any = decks.some((d) => d.playing);              // keep every transport label true to what is playing
+  $("playBoth").textContent = $("tPlay").textContent = any ? "Pause both" : "Play both";
+  const pp = document.getElementById("performPlan");
+  if (pp) pp.textContent = transition ? "Stop the transition" : "Play the transition";
   drawTogether();
   if (!document.querySelector('[data-panel=sargam]').hidden) drawSargam();
   if (!document.querySelector('[data-panel=spectrum]').hidden) drawSpectrum();
