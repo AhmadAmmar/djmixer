@@ -9,7 +9,7 @@
 </head>
 <body>
 <header>
-  <h1>Mix and Learn</h1>
+  <div class="row"><button id="toggleLessons" title="Hide or show the lessons on the left">Hide lessons</button><h1>Mix and Learn</h1></div>
   <div class="tools">
     <button id="demos">Load demo tracks</button>
     <button id="save">Save project</button>
@@ -34,6 +34,9 @@
       <div class="info" id="match">Load two tracks to compare them.</div>
       <label class="fader" data-help="crossfader">A <input id="xfade" type="range" min="0" max="1" step="0.005" value="0.5"> B</label>
       <button id="sync" data-help="sync">Sync B to A</button>
+      <button id="swapDecks" data-help="swap">Swap A &#8644; B</button>
+      <div class="row center"><button id="copyAB" data-help="copy">A &#8594; B</button><button id="copyBA" data-help="copy">B &#8594; A</button></div>
+      <button id="resetBoth" data-help="resetBoth">Reset both decks</button>
     </div>
     <div class="deck" id="deckB"></div>
     <nav class="tabs">

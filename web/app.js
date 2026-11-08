@@ -2,7 +2,7 @@ import { NOTES, SPEED_OF_SOUND, SWARAS, downmix, estimateKey, estimateTempo, fre
 import { LESSONS as BASE_LESSONS } from "./lessons.js";
 import { MORE_LESSONS } from "./lessons_more.js";
 const LESSONS = [...BASE_LESSONS.slice(0, -1), ...MORE_LESSONS, BASE_LESSONS[BASE_LESSONS.length - 1]];
-import { APP_VERSION, init as initStudio, renderLibrary } from "./studio.js";
+import { APP_VERSION, init as initStudio, library, renderLibrary } from "./studio.js";
 import { firstRun, initHelp, tour } from "./help.js";
 import { saveFile } from "./platform.js";
 
@@ -25,18 +25,28 @@ const ctx = () => {
   return audio;
 };
 
+// Each knob: what it changes, its range, its default and how its value is shown. Explanations are in help.js.
+const KNOBS = [
+  { id: "gain", label: "Volume", help: "volume", min: 0, max: 1.2, step: 0.01, def: 1, fmt: (v) => `x${v.toFixed(2)} (${v > 0 ? (20 * Math.log10(v)).toFixed(1) : "-inf"} dB)` },
+  { id: "rate", label: "Speed", help: "speed", min: 0.8, max: 1.25, step: 0.001, def: 1, fmt: (v) => `x${v.toFixed(3)} (${v >= 1 ? "+" : ""}${(100 * (v - 1)).toFixed(1)}%, ${(12 * Math.log2(v)).toFixed(2)} semitones)` },
+  { id: "low", label: "Bass (below 250 Hz)", help: "eqLow", min: -30, max: 6, step: 0.5, def: 0, fmt: (v) => `${v > 0 ? "+" : ""}${v} dB` },
+  { id: "mid", label: "Mids (around 1 kHz)", help: "eqMid", min: -30, max: 6, step: 0.5, def: 0, fmt: (v) => `${v > 0 ? "+" : ""}${v} dB` },
+  { id: "high", label: "Treble (above 4 kHz)", help: "eqHigh", min: -30, max: 6, step: 0.5, def: 0, fmt: (v) => `${v > 0 ? "+" : ""}${v} dB` },
+];
+
 class Deck {
   constructor(el, name) {
     Object.assign(this, { el, name, buffer: null, file: "", source: null, playing: false, offset: 0, startedAt: 0, rate: 1, bpm: 0, firstBeat: 0, key: null, cues: [], zoom: 1, peaks: null });
     el.innerHTML = `<h3>${name}: no track</h3><canvas height="160"></canvas><div class="stats">&nbsp;</div>
       <div class="row"><button data-a="play">Play</button><button data-a="load">Load</button><button data-a="cue">Cue</button><input type="file" accept="audio/*" hidden></div>
-      <div class="knobs">
-        <label>Volume<input data-k="gain" type="range" min="0" max="1.2" step="0.01" value="1"></label>
-        <label>Speed<input data-k="rate" type="range" min="0.8" max="1.25" step="0.001" value="1"></label>
-        <label data-help="eq">Low<input data-k="low" type="range" min="-30" max="6" step="0.5" value="0"></label>
-        <label>Mid<input data-k="mid" type="range" min="-30" max="6" step="0.5" value="0"></label>
-        <label>High<input data-k="high" type="range" min="-30" max="6" step="0.5" value="0"></label>
-      </div>`;
+      <div class="knobs">${KNOBS.map((k) => `
+        <div class="knob"><span class="kname" data-help="${k.help}">${k.label}</span> <span class="kval" data-v="${k.id}"></span>
+          <button class="reset" data-r="${k.id}" title="Back to the default, ${k.fmt(k.def)} (or double-click the slider)">&#8634;</button>
+          <input data-k="${k.id}" type="range" min="${k.min}" max="${k.max}" step="${k.step}" value="${k.def}" aria-label="${k.label}"></div>`).join("")}
+        <div class="knob"><span class="kname" data-help="stems">Play</span>
+          <select data-stem><option value="full">whole track</option><option value="vocals">vocals only (approx.)</option><option value="music">music only (approx.)</option></select></div>
+      </div>
+      <div class="row"><button data-a="reset" data-help="resetDeck">Reset this deck's knobs</button></div>`;
     this.title = el.querySelector("h3");
     this.canvas = el.querySelector("canvas");
     this.stats = el.querySelector(".stats");
@@ -45,7 +55,14 @@ class Deck {
     el.querySelector("[data-a=load]").onclick = () => input.click();
     el.querySelector("[data-a=cue]").onclick = () => this.addCue();
     input.onchange = () => input.files[0] && this.loadFile(input.files[0]);
-    el.querySelectorAll("[data-k]").forEach((s) => (s.oninput = () => this.set(s.dataset.k, +s.value)));
+    el.querySelectorAll("[data-k]").forEach((s) => {
+      s.oninput = () => this.set(s.dataset.k, +s.value);
+      s.ondblclick = () => this.resetKnob(s.dataset.k);
+    });
+    el.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => this.resetKnob(b.dataset.r)));
+    el.querySelector("[data-a=reset]").onclick = () => this.resetAll();
+    el.querySelector("[data-stem]").onchange = (e) => this.setStem(e.target.value);
+    this.showValues();
     this.canvas.onclick = (e) => {
       if (!this.buffer) return;
       const r = this.canvas.getBoundingClientRect();
@@ -54,7 +71,16 @@ class Deck {
     };
     this.canvas.onwheel = (e) => { e.preventDefault(); this.zoom = Math.min(64, Math.max(1, this.zoom * (e.deltaY < 0 ? 1.25 : 0.8))); };
     el.ondragover = (e) => e.preventDefault();
-    el.ondrop = (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) this.loadFile(e.dataTransfer.files[0]); };
+    el.ondragenter = () => el.classList.add("dropping");
+    el.ondragleave = (e) => { if (!el.contains(e.relatedTarget)) el.classList.remove("dropping"); };
+    el.ondrop = (e) => {
+      e.preventDefault();
+      el.classList.remove("dropping");
+      const id = e.dataTransfer.getData("text/mal-track");
+      const item = id && library.find((t) => t.id === id);
+      if (item?.buffer) this.setBuffer(item.buffer, item.file);
+      else if (e.dataTransfer.files[0]) this.loadFile(e.dataTransfer.files[0]);
+    };
   }
 
   wire() {
@@ -65,7 +91,26 @@ class Deck {
       b.key = k;
       return b;
     });
-    this.input = this.bands[0];
+    // Vocals or music only, by the classic centre-channel method: lead vocals are usually mixed to the centre
+    // (equal in left and right), so mid = (L + R)/2 holds them and side = (L - R)/2 cancels them.
+    // Bass and kick drum are also centred, so "music" adds back the mid below 150 Hz, and "vocals" keeps only
+    // the mid between 150 Hz and 7 kHz. This is an approximation; tools/separate.py makes model-based stems.
+    this.input = audio.createGain();
+    const split = audio.createChannelSplitter(2);
+    this.input.connect(split);
+    const g = (v) => { const n = audio.createGain(); n.gain.value = v; return n; };
+    const mid = g(1), side = g(1), l2m = g(0.5), r2m = g(0.5), l2s = g(0.5), r2s = g(-0.5);
+    split.connect(l2m, 0); split.connect(r2m, 1); split.connect(l2s, 0); split.connect(r2s, 1);
+    l2m.connect(mid); r2m.connect(mid); l2s.connect(side); r2s.connect(side);
+    const hp = audio.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 150;
+    const lp = audio.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 7000;
+    const bassOnly = audio.createBiquadFilter(); bassOnly.type = "lowpass"; bassOnly.frequency.value = 150;
+    this.stemGains = { full: g(1), vocals: g(0), music: g(0) };
+    this.input.connect(this.stemGains.full);
+    mid.connect(hp).connect(lp).connect(this.stemGains.vocals);
+    side.connect(this.stemGains.music); mid.connect(bassOnly).connect(this.stemGains.music);
+    Object.values(this.stemGains).forEach((n) => n.connect(this.bands[0]));
+    this.setStem(this.stem || "full");
     this.bands[0].connect(this.bands[1]);
     this.bands[1].connect(this.bands[2]);
     this.gain = audio.createGain();
@@ -80,6 +125,7 @@ class Deck {
   }
 
   set(key, value) {
+    this.showValues();
     if (key === "rate") {
       this.setRate(value);
       return;
@@ -87,6 +133,44 @@ class Deck {
     if (!audio) return;
     if (key === "gain") this.gain.gain.value = value;
     else this.bands.find((b) => b.key === key).gain.value = value;
+  }
+
+  showValues() {
+    KNOBS.forEach((k) => (this.el.querySelector(`[data-v=${k.id}]`).textContent = k.fmt(+this.el.querySelector(`[data-k=${k.id}]`).value)));
+  }
+
+  resetKnob(id) {
+    const k = KNOBS.find((x) => x.id === id);
+    this.el.querySelector(`[data-k=${id}]`).value = k.def;
+    this.set(id, k.def);
+  }
+
+  resetAll() {
+    KNOBS.forEach((k) => this.resetKnob(k.id));
+    this.setStem("full");
+  }
+
+  setStem(mode) {
+    this.stem = mode;
+    this.el.querySelector("[data-stem]").value = mode;
+    if (this.stemGains) Object.entries(this.stemGains).forEach(([m, n]) => (n.gain.value = m === mode ? 1 : 0));
+  }
+
+  // Everything that describes what this deck is playing, so it can be swapped with or copied to the other deck.
+  state() {
+    return { buffer: this.buffer, file: this.file, bpm: this.bpm, firstBeat: this.firstBeat, key: this.key, cues: [...this.cues], peaks: this.peaks,
+      position: this.buffer ? this.position() : 0, playing: this.playing, stem: this.stem,
+      knobs: Object.fromEntries(KNOBS.map((k) => [k.id, +this.el.querySelector(`[data-k=${k.id}]`).value])) };
+  }
+
+  restore(st) {
+    this.stop();
+    Object.assign(this, { buffer: st.buffer, file: st.file, bpm: st.bpm, firstBeat: st.firstBeat, key: st.key, cues: st.cues, peaks: st.peaks, offset: st.position, zoom: 1 });
+    this.title.textContent = st.buffer ? `${this.name}: ${st.file}` : `${this.name}: no track`;
+    KNOBS.forEach((k) => { this.el.querySelector(`[data-k=${k.id}]`).value = st.knobs[k.id]; this.set(k.id, st.knobs[k.id]); });
+    this.setStem(st.stem || "full");
+    if (st.playing && st.buffer) this.start();
+    compare();
   }
 
   setRate(value) {
@@ -165,6 +249,8 @@ class Deck {
       for (let k = 0; k < step; k += 8) m = Math.max(m, Math.abs(mono[i * step + k] || 0));
       return m;
     });
+    const top = Math.max(...this.peaks, 1e-9);
+    this.peaks = this.peaks.map((v) => (0.95 * v) / top);   // scale to the loudest moment, so loud masters do not fill the box
     setTimeout(() => {
       const f = Math.round(buffer.sampleRate / 11025);
       const x = downmix(chans, f);
@@ -249,6 +335,17 @@ function sync() {
   }
 }
 $("sync").onclick = sync;
+// Swap exchanges everything the decks hold (track, position, knobs, cues), so the crossfader's sides swap too.
+$("swapDecks").onclick = () => { const a = decks[0].state(), b = decks[1].state(); decks[0].restore(b); decks[1].restore(a); };
+$("copyAB").onclick = () => decks[1].restore({ ...decks[0].state(), playing: false });
+$("copyBA").onclick = () => decks[0].restore({ ...decks[1].state(), playing: false });
+$("resetBoth").onclick = () => { decks.forEach((d) => d.resetAll()); $("xfade").value = 0.5; setFade(0.5); };
+$("toggleLessons").onclick = () => {
+  const hide = document.body.classList.toggle("nolessons");
+  $("toggleLessons").textContent = hide ? "Show lessons" : "Hide lessons";
+  try { localStorage.setItem("mal-nolessons", hide ? "1" : ""); } catch {}
+};
+try { if (localStorage.getItem("mal-nolessons")) $("toggleLessons").click(); } catch {}
 
 function demoBuffer(bpm, root, minor) {
   ctx();

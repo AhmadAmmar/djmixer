@@ -3,7 +3,7 @@ import { NOTES, downmix, noteToFreq } from "./dsp.js";
 import { PRESETS, keyFit, orderSet, planTransition, setFile, shiftedKey, semitones, tempoMatch } from "./mix.js";
 import { mp3Blob, renderSet as renderMix, sha256, wavBlob } from "./render.js";
 
-export const APP_VERSION = "0.3.1";
+export const APP_VERSION = "0.4.0";
 const $ = (id) => document.getElementById(id);
 let env;                                   // { ctx, decks, download, master }
 export const library = [];                 // { id, file, buffer, sha256, duration, ...analysis }
@@ -69,6 +69,11 @@ export function renderLibrary() {
   library.forEach((t) => {
     const li = document.createElement("li");
     li.className = "card";
+    if (t.status === "ready") {                       // drag a ready track onto a deck
+      li.draggable = true;
+      li.title = "Drag onto deck A or B";
+      li.ondragstart = (e) => e.dataTransfer.setData("text/mal-track", t.id);
+    }
     li.innerHTML = `<b>${esc(t.file)}</b><div class="muted">${esc(t.status)}</div>`;
     if (t.status === "ready") {
       li.innerHTML += `<div class="facts">
@@ -128,6 +133,7 @@ export function renderSet() {
   ol.innerHTML = "";
   order.forEach((t, i) => {
     const li = document.createElement("li");
+    li.value = i + 1;                                  // number tracks 1, 2, 3; the transition notes between them are not counted
     li.innerHTML = `<b>${esc(t.file)}</b> <span class="muted">${t.bpm.toFixed(1)} BPM, ${t.camelot}, ${t.rmsDb} dB</span>`;
     const up = document.createElement("button"); up.textContent = "Up"; up.disabled = i === 0;
     up.onclick = () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; renderSet(); };

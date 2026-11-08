@@ -17,6 +17,18 @@ Because speed moves pitch, it moves the key: B's root shifts by $\Delta$ rounded
 \item \textbf{Loudness matching.} Every track is trimmed to $-14$\,dB RMS before mixing, as a DJ sets the gain knob, and a limiter on the master stops the overlap from clipping.
 \end{itemize}
 
+\section{Vocals over music: mashups and stems}
+A mashup plays one song's vocals over another's music. Each deck's \emph{Play} menu offers \emph{vocals only} and \emph{music only}, made by a physical trick: lead vocals are usually mixed to the centre, equal in both speakers, so
+\[ \text{mid} = \tfrac{L+R}{2} \ \text{keeps them}, \qquad \text{side} = \tfrac{L-R}{2} \ \text{cancels them}. \]
+Bass and kick drum are centred too, so \emph{music only} adds back the mid below 150\,Hz, and \emph{vocals only} keeps the mid from 150\,Hz to 7\,kHz. Reverb, backing vocals and centred instruments leak through, so this is a sketch, good for learning and rehearsing.
+
+For clean parts use \emph{source separation} with Demucs, an open-source neural network (Meta AI, MIT licence) trained on songs together with their separate tracks; it predicts which part of the sound belongs to the voice, drums, bass and the rest:
+\begin{lstlisting}[language=bash]
+pip install demucs                      # once; about 2 GB with PyTorch
+python tools/separate.py "Socha Hai.mp3" "Disco.mp3"
+\end{lstlisting}
+It writes \texttt{vocals.mp3} and \texttt{no\_vocals.mp3} for each song in \texttt{separated/}; add them to the Library like any track. Then sync, start the vocal on beat one of a phrase of the music, and check on the Camelot wheel that the keys fit.
+
 \section{How different scenes mix}
 \begin{tabularx}{\linewidth}{@{}lX@{}}
 \toprule
